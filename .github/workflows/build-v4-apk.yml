@@ -1,4 +1,4 @@
-name: Build Galaxy AI Fold7 v4 APK
+name: Build Galaxy AI Fold7 v5 APK
 
 on:
   workflow_dispatch:
@@ -22,32 +22,31 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android SDK 35
+      - name: Android SDK 35
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Gradle 8.10.2
+      - name: Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
 
-      - name: Build APK
+      - name: Build v5 APK
         run: gradle --no-daemon --stacktrace :app:assembleDebug
 
-      - name: Verify and rename APK
+      - name: Verify APK
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v4.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs Galaxy_AI_Fold7_LiveWallpaper_v4.apk
-          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v4.apk | tee Galaxy_AI_Fold7_LiveWallpaper_v4.apk.sha256
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v5.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs Galaxy_AI_Fold7_LiveWallpaper_v5.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v5.apk | tee Galaxy_AI_Fold7_LiveWallpaper_v5.apk.sha256
 
-      - name: Upload APK
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: Galaxy_AI_Fold7_LiveWallpaper_v4
+          name: Galaxy_AI_Fold7_LiveWallpaper_v5
           path: |
-            Galaxy_AI_Fold7_LiveWallpaper_v4.apk
-            Galaxy_AI_Fold7_LiveWallpaper_v4.apk.sha256
-          if-no-files-found: error
+            Galaxy_AI_Fold7_LiveWallpaper_v5.apk
+            Galaxy_AI_Fold7_LiveWallpaper_v5.apk.sha256
           retention-days: 7
