@@ -22,6 +22,10 @@ public class AssetManagerV5 {
         return bitmap;
     }
 
+    public Bitmap loadDrawable(String name){
+        return load(name);
+    }
+
     public void clear(){
         for(Bitmap bitmap: cache.values()){
             if(bitmap != null && !bitmap.isRecycled()) bitmap.recycle();
