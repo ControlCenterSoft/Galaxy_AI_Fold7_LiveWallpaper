@@ -15,3 +15,6 @@ Samsung Galaxy Z Fold7
 
 Build target:
 Android SDK 35
+
+Build:
+- v4 CI package build requested on 2026-09-23
