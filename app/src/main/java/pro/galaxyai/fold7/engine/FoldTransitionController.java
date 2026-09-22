@@ -12,4 +12,12 @@ public class FoldTransitionController {
     public float getProgress(){
         return progress;
     }
+
+    public boolean isExpanded(){
+        return progress >= 0.95f;
+    }
+
+    public boolean isTransitioning(){
+        return progress > 0f && progress < 1f;
+    }
 }
