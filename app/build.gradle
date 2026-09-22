@@ -13,4 +13,13 @@ android {
         versionCode 4
         versionName '4.0'
     }
+
+    buildTypes {
+        debug {
+            debuggable true
+        }
+        release {
+            minifyEnabled false
+        }
+    }
 }
