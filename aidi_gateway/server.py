@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+import json
+import os
+import threading
+import time
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+HOST = os.environ.get("AIDI_GATEWAY_HOST", "0.0.0.0")
+PORT = int(os.environ.get("AIDI_GATEWAY_PORT", "8088"))
+OLLAMA_URL = os.environ.get("AIDI_OLLAMA_URL", "http://192.168.10.218:11434/api/chat")
+MODEL = os.environ.get("AIDI_OLLAMA_MODEL", "qwen3-coder:30b")
+LLM_CACHE_SECONDS = int(os.environ.get("AIDI_LLM_CACHE_SECONDS", "900"))
+
+_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="aidi-llm")
+_lock = threading.Lock()
+_cache = {}
+_pending = set()
+_stats = {
+    "requests": 0,
+    "llm_started": 0,
+    "llm_success": 0,
+    "llm_error": 0,
+    "started_at": int(time.time()),
+}
+
+
+def clamp(value, low, high):
+    return max(low, min(high, value))
+
+
+def baseline(payload):
+    state = payload.get("state") or {}
+    battery = int(state.get("battery", 50))
+    charging = bool(state.get("charging", False))
+    hour = int(state.get("hour", 12))
+    motion = float(state.get("motion_level", 0.0))
+    fold_state = state.get("fold_state", "cover")
+    night = hour >= 22 or hour < 7
+    low_battery = battery <= 15 and not charging
+
+    if low_battery:
+        name, avatar, energy = "deep_black", "resting", 0.12
+        particles, pulse, scale = 0.55, 0.72, 0.995
+    elif night and motion < 0.45:
+        name, avatar, energy = "deep_nebula", "calm", 0.24
+        particles, pulse, scale = 0.72, 0.82, 0.998
+    elif charging and motion > 0.55:
+        name, avatar, energy = "energy_core", "focused", 0.82
+        particles, pulse, scale = 1.34, 1.22, 1.006
+    elif fold_state == "main":
+        name, avatar, energy = "living_continuum", "aware", 0.52
+        particles, pulse, scale = 1.08, 1.04, 1.002
+    else:
+        name, avatar, energy = "compact_continuum", "calm", 0.38
+        particles, pulse, scale = 0.92, 0.96, 0.999
+
+    return {
+        "decision_id": "fast-%d" % int(time.time()),
+        "scene": {
+            "name": name,
+            "energy": energy,
+            "particle_multiplier": particles,
+            "pulse_multiplier": pulse,
+            "scene_scale": scale,
+            "avatar_x_bias": 0.001 if fold_state == "main" else 0.0,
+            "avatar_y_bias": -0.001 if night else 0.0,
+        },
+        "avatar": {"state": avatar},
+        "ttl": 60,
+        "source": "aidi-fast-path",
+    }
+
+
+def normalize(candidate, fallback):
+    scene_in = candidate.get("scene") if isinstance(candidate, dict) else None
+    avatar_in = candidate.get("avatar") if isinstance(candidate, dict) else None
+    scene_in = scene_in if isinstance(scene_in, dict) else {}
+    avatar_in = avatar_in if isinstance(avatar_in, dict) else {}
+    base_scene = fallback["scene"]
+
+    def num(name, default):
+        try:
+            return float(scene_in.get(name, default))
+        except Exception:
+            return float(default)
+
+    name = str(scene_in.get("name", base_scene["name"]))[:64]
+    avatar_state = str(avatar_in.get("state", fallback["avatar"]["state"]))[:32]
+
+    return {
+        "decision_id": "llm-%d" % int(time.time()),
+        "scene": {
+            "name": name,
+            "energy": clamp(num("energy", base_scene["energy"]), 0.0, 1.0),
+            "particle_multiplier": clamp(num("particle_multiplier", base_scene["particle_multiplier"]), 0.45, 1.8),
+            "pulse_multiplier": clamp(num("pulse_multiplier", base_scene["pulse_multiplier"]), 0.6, 1.5),
+            "scene_scale": clamp(num("scene_scale", base_scene["scene_scale"]), 0.97, 1.03),
+            "avatar_x_bias": clamp(num("avatar_x_bias", base_scene["avatar_x_bias"]), -0.02, 0.02),
+            "avatar_y_bias": clamp(num("avatar_y_bias", base_scene["avatar_y_bias"]), -0.02, 0.02),
+        },
+        "avatar": {"state": avatar_state},
+        "ttl": 900,
+        "source": "aidi-local-llm:%s" % MODEL,
+    }
+
+
+def ollama_decision(payload, fallback):
+    system = """You are the AIDI scene decision engine for Galaxy AI Fold7 live wallpaper.
+Return JSON only. Choose a calm, battery-aware visual state from device context.
+Use this exact shape:
+{"scene":{"name":"...","energy":0.0,"particle_multiplier":1.0,"pulse_multiplier":1.0,"scene_scale":1.0,"avatar_x_bias":0.0,"avatar_y_bias":0.0},"avatar":{"state":"calm"}}
+Constraints: energy 0..1, particle_multiplier 0.45..1.8, pulse_multiplier 0.6..1.5,
+scene_scale 0.97..1.03, avatar biases -0.02..0.02.
+Do not add prose, markdown or extra keys."""
+    request_body = {
+        "model": MODEL,
+        "stream": False,
+        "format": "json",
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": json.dumps(payload, separators=(",", ":"))},
+        ],
+        "options": {"temperature": 0.15, "num_predict": 220},
+    }
+    raw = json.dumps(request_body).encode("utf-8")
+    req = urllib.request.Request(
+        OLLAMA_URL,
+        data=raw,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=90) as response:
+        body = json.loads(response.read().decode("utf-8"))
+    content = body.get("message", {}).get("content", "{}")
+    candidate = json.loads(content)
+    return normalize(candidate, fallback)
+
+
+def cache_key(payload):
+    return str(payload.get("device", "GalaxyFold7"))
+
+
+def refresh_llm(key, payload, fallback):
+    with _lock:
+        _stats["llm_started"] += 1
+    try:
+        decision = ollama_decision(payload, fallback)
+        with _lock:
+            _cache[key] = (time.time(), decision)
+            _stats["llm_success"] += 1
+    except Exception as exc:
+        with _lock:
+            _stats["llm_error"] += 1
+            failed = dict(fallback)
+            failed["source"] = "aidi-llm-fallback"
+            failed["llm_error"] = str(exc)[:160]
+            _cache[key] = (time.time(), failed)
+    finally:
+        with _lock:
+            _pending.discard(key)
+
+
+def decide(payload):
+    fallback = baseline(payload)
+    key = cache_key(payload)
+    now = time.time()
+    with _lock:
+        _stats["requests"] += 1
+        cached = _cache.get(key)
+        fresh = cached and now - cached[0] < LLM_CACHE_SECONDS
+        if fresh:
+            return cached[1]
+        if key not in _pending:
+            _pending.add(key)
+            _executor.submit(refresh_llm, key, payload, fallback)
+    return fallback
+
+
+def health():
+    with _lock:
+        stats = dict(_stats)
+        pending = sorted(_pending)
+        cache_devices = sorted(_cache)
+    return {
+        "status": "ok",
+        "service": "aidi-gateway",
+        "protocol": "scene-v1",
+        "model": MODEL,
+        "ollama_url": OLLAMA_URL,
+        "pending": pending,
+        "cached_devices": cache_devices,
+        "stats": stats,
+    }
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "AIDI-Gateway/0.20"
+
+    def send_json(self, code, body):
+        data = json.dumps(body, separators=(",", ":")).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):
+        if self.path == "/health":
+            self.send_json(200, health())
+        else:
+            self.send_json(404, {"error": "not_found"})
+
+    def do_POST(self):
+        if self.path != "/api/v1/scene/analyze":
+            self.send_json(404, {"error": "not_found"})
+            return
+        if self.headers.get("X-AIDI-Protocol", "scene-v1") != "scene-v1":
+            self.send_json(400, {"error": "unsupported_protocol"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > 65536:
+                raise ValueError("invalid content length")
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            self.send_json(200, decide(payload))
+        except Exception as exc:
+            self.send_json(400, {"error": "bad_request", "detail": str(exc)[:200]})
+
+    def log_message(self, fmt, *args):
+        print("%s - %s" % (self.address_string(), fmt % args), flush=True)
+
+
+if __name__ == "__main__":
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    print("AIDI Gateway v20 listening on %s:%d, model=%s" % (HOST, PORT, MODEL), flush=True)
+    server.serve_forever()
