@@ -12,7 +12,7 @@ import pro.galaxyai.fold7.engine.*;
 
 public class GalaxyAIWallpaperService extends WallpaperService {
 
-    // Reuse the v9 preference namespace so v10 upgrades preserve the user's universe.
+    // Preserve the v9/v10 namespace so upgrades keep the same personal universe.
     private static final String PREFS_UNIVERSE = "personal_universe_v9";
     private static final String KEY_SCENE_SEED = "scene_seed";
     private static final String KEY_EVOLUTION_EPOCH = "v10_evolution_epoch";
@@ -20,7 +20,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
     @Override
     public Engine onCreateEngine() {
         UniverseIdentity identity = loadUniverseIdentity();
-        return new V10Engine(identity.seed, identity.evolutionEpoch);
+        return new V11Engine(identity.seed, identity.evolutionEpoch);
     }
 
     private UniverseIdentity loadUniverseIdentity() {
@@ -49,7 +49,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         }
     }
 
-    private class V10Engine extends Engine {
+    private class V11Engine extends Engine {
         private final Handler handler = new Handler();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
@@ -60,12 +60,12 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private final GlowEngineV6 glow = new GlowEngineV6();
         private final HologramEngineV6 hologram = new HologramEngineV6();
         private final MotionControllerV6 motion = new MotionControllerV6();
-        private final AutonomousUniverseControllerV10 universe;
+        private final AdaptiveUniverseControllerV11 universe;
         private boolean visible;
         private long frameDelayMillis = 37L;
 
-        V10Engine(long universeSeed, long evolutionEpoch) {
-            universe = new AutonomousUniverseControllerV10(universeSeed, evolutionEpoch);
+        V11Engine(long universeSeed, long evolutionEpoch) {
+            universe = new AdaptiveUniverseControllerV11(universeSeed, evolutionEpoch);
         }
 
         private final Runnable loop = new Runnable() {
