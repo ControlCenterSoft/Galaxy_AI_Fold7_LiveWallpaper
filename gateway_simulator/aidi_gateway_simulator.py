@@ -36,6 +36,7 @@ def decide(payload):
 
     return {
         "decision_id": "sim-v20",
+        "request_id": str(payload.get("request_id", ""))[:160],
         "scene": {
             "name": name,
             "energy": clamp(energy, 0.0, 1.0),
@@ -52,11 +53,15 @@ def decide(payload):
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _send_json(self, code, body):
+    def _send_json(self, code, body, request_id=""):
         data = json.dumps(body, separators=(",", ":")).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-AIDI-Protocol", "scene-v1")
+        if request_id:
+            self.send_header("X-AIDI-Request-Id", request_id[:160])
         self.end_headers()
         self.wfile.write(data)
 
@@ -70,12 +75,22 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/api/v1/scene/analyze":
             self._send_json(404, {"error": "not_found"})
             return
+        request_id = self.headers.get("X-AIDI-Request-Id", "")
+        if self.headers.get("X-AIDI-Protocol", "scene-v1") != "scene-v1":
+            self._send_json(400, {"error": "unsupported_protocol"}, request_id)
+            return
         try:
             size = int(self.headers.get("Content-Length", "0"))
+            if size <= 0 or size > 65536:
+                raise ValueError("invalid content length")
             payload = json.loads(self.rfile.read(size) or b"{}")
-            self._send_json(200, decide(payload))
+            body_request_id = str(payload.get("request_id", ""))
+            if request_id and body_request_id and request_id != body_request_id:
+                raise ValueError("request id mismatch")
+            request_id = request_id or body_request_id
+            self._send_json(200, decide(payload), request_id)
         except Exception as exc:
-            self._send_json(400, {"error": "bad_request", "detail": str(exc)})
+            self._send_json(400, {"error": "bad_request", "detail": str(exc)}, request_id)
 
     def log_message(self, fmt, *args):
         return
