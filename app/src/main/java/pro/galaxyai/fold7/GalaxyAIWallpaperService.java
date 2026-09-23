@@ -26,7 +26,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
     @Override
     public Engine onCreateEngine() {
         UniverseIdentity identity = loadUniverseIdentity();
-        return new V41Engine(identity.seed, identity.evolutionEpoch);
+        return new V42Engine(identity.seed, identity.evolutionEpoch);
     }
 
     private UniverseIdentity loadUniverseIdentity() {
@@ -55,7 +55,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         }
     }
 
-    private class V41Engine extends Engine {
+    private class V42Engine extends Engine {
         private final Handler handler = new Handler();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
@@ -67,6 +67,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private final AdaptiveRenderQualityV39 renderQuality = new AdaptiveRenderQualityV39();
         private final LivingAvatarMotionV40 livingMotion = new LivingAvatarMotionV40();
         private final SpeechFaceSyncV41 speechFace = new SpeechFaceSyncV41();
+        private final AutonomousGestureV42 autonomousGesture = new AutonomousGestureV42();
         private final PortraitPresenceControllerV32 portraitPresence = new PortraitPresenceControllerV32();
         private final AvatarStyleControllerV28 avatarStyle =
                 new AvatarStyleControllerV28(GalaxyAIWallpaperService.this);
@@ -92,7 +93,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private int surfaceWidth = 1;
         private int surfaceHeight = 1;
 
-        V41Engine(long universeSeed, long evolutionEpoch) {
+        V42Engine(long universeSeed, long evolutionEpoch) {
             universe = new MemoryAwareUniverseControllerV21(universeSeed, evolutionEpoch);
             setTouchEventsEnabled(true);
         }
@@ -208,12 +209,14 @@ public class GalaxyAIWallpaperService extends WallpaperService {
 
                 ambientPersonality.applyVoiceManner(personal.voicePitch, personal.voiceRate);
                 ambientPersonality.maybeReact(decision);
+                boolean speaking = ambientPersonality.isSpeaking();
                 speechFace.update(
-                        ambientPersonality.isSpeaking(),
+                        speaking,
                         ambientPersonality.getSpeechActivity(),
                         decision,
                         deltaSeconds
                 );
+                autonomousGesture.update(decision, speaking, deltaSeconds);
                 frameDelayMillis = renderQuality.adjustFrameDelay(
                         portraitPresence.getSuggestedFrameDelayMillis(
                                 universe.getFrameDelayMillis(main)),
@@ -231,6 +234,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
 
                 canvas.save();
                 livingMotion.applyPortraitTransform(canvas, w, h);
+                autonomousGesture.applyGestureTransform(canvas, w, h);
                 cinematicDepth.drawBehind(canvas, w, h, main);
                 avatar.draw(canvas, w, h, main);
                 speechFace.draw(canvas, w, h, main);
@@ -240,11 +244,13 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 float avatarX = (main ? w * 0.54f : w * 0.50f)
                         + w * (universe.getAvatarHorizontalBias() + personality.getHorizontalDrift()) * 0.72f
                         + w * portraitPresence.getHorizontalShift()
-                        + livingMotion.getPixelOffsetX(w);
+                        + livingMotion.getPixelOffsetX(w)
+                        + autonomousGesture.getPixelOffsetX(w);
                 float avatarY = h * (main ? 0.405f : 0.385f)
                         + h * (universe.getAvatarVerticalBias() + personality.getVerticalDrift()) * 0.55f
                         + h * portraitPresence.getVerticalShift()
-                        + livingMotion.getPixelOffsetY(h);
+                        + livingMotion.getPixelOffsetY(h)
+                        + autonomousGesture.getPixelOffsetY(h);
                 float personalScale = 0.96f + personal.expressionIntensity * 0.12f;
                 float baseAvatarSize = main
                         ? Math.min(w, h) * 0.84f
@@ -253,14 +259,16 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                         * personality.getAvatarScale()
                         * personalScale
                         * portraitPresence.getScaleMultiplier()
-                        * livingMotion.getScale();
+                        * livingMotion.getScale()
+                        * autonomousGesture.getScale();
 
                 AvatarStyleV28 style = avatarStyle.getStyle();
                 float eyeGlow = 0.84f + personal.eyeGlow * 0.24f;
                 float warmthHologram = 1.06f - personal.appearanceWarmth * 0.20f;
                 float styleGlow = (0.84f + style.hologramStrength * 0.18f) * eyeGlow;
                 float effectScale = renderQuality.getEffectScale()
-                        * (0.98f + livingMotion.getMotionIntensity() * 0.05f);
+                        * (0.98f + livingMotion.getMotionIntensity() * 0.05f)
+                        * (0.99f + autonomousGesture.getIntensity() * 0.03f);
                 glow.draw(
                         canvas,
                         avatarX,
