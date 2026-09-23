@@ -26,7 +26,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
     @Override
     public Engine onCreateEngine() {
         UniverseIdentity identity = loadUniverseIdentity();
-        return new V42Engine(identity.seed, identity.evolutionEpoch);
+        return new V45Engine(identity.seed, identity.evolutionEpoch);
     }
 
     private UniverseIdentity loadUniverseIdentity() {
@@ -55,14 +55,14 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         }
     }
 
-    private class V42Engine extends Engine {
+    private class V45Engine extends Engine {
         private final Handler handler = new Handler();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
         private final FoldTransitionController fold = new FoldTransitionController();
         private final GalaxySceneRendererV6 galaxy = new GalaxySceneRendererV6();
-        private final PhotorealAIAvatarRendererV36 avatar =
-                new PhotorealAIAvatarRendererV36(GalaxyAIWallpaperService.this);
+        private final DeformableLivePortraitV45 avatar =
+                new DeformableLivePortraitV45(GalaxyAIWallpaperService.this);
         private final CinematicPortraitDepthV38 cinematicDepth = new CinematicPortraitDepthV38();
         private final AdaptiveRenderQualityV39 renderQuality = new AdaptiveRenderQualityV39();
         private final LivingAvatarMotionV40 livingMotion = new LivingAvatarMotionV40();
@@ -93,7 +93,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private int surfaceWidth = 1;
         private int surfaceHeight = 1;
 
-        V42Engine(long universeSeed, long evolutionEpoch) {
+        V45Engine(long universeSeed, long evolutionEpoch) {
             universe = new MemoryAwareUniverseControllerV21(universeSeed, evolutionEpoch);
             setTouchEventsEnabled(true);
         }
@@ -133,6 +133,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 int action = event.getActionMasked();
                 boolean pressed = action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE;
                 livingMotion.onTouch(nx, ny, pressed);
+                avatar.onTouch(nx, ny, pressed);
             }
             super.onTouchEvent(event);
         }
@@ -216,6 +217,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                         decision,
                         deltaSeconds
                 );
+                avatar.setMouthOpen(speechFace.getMouthOpen());
                 autonomousGesture.update(decision, speaking, deltaSeconds);
                 frameDelayMillis = renderQuality.adjustFrameDelay(
                         portraitPresence.getSuggestedFrameDelayMillis(
@@ -237,7 +239,6 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 autonomousGesture.applyGestureTransform(canvas, w, h);
                 cinematicDepth.drawBehind(canvas, w, h, main);
                 avatar.draw(canvas, w, h, main);
-                speechFace.draw(canvas, w, h, main);
                 cinematicDepth.drawOver(canvas, w, h, main);
                 canvas.restore();
 
