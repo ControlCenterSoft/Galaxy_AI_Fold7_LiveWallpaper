@@ -2,6 +2,14 @@ plugins {
     id 'com.android.application'
 }
 
+def aidiGatewayEndpoint = (project.findProperty('AIDI_GATEWAY_ENDPOINT')
+        ?: System.getenv('AIDI_GATEWAY_ENDPOINT')
+        ?: 'http://192.168.10.214:8088/api/v1/scene/analyze').toString()
+
+if (!(aidiGatewayEndpoint.startsWith('http://') || aidiGatewayEndpoint.startsWith('https://'))) {
+    throw new GradleException('AIDI_GATEWAY_ENDPOINT must use http:// or https://')
+}
+
 android {
     namespace 'pro.galaxyai.fold7'
     compileSdk 35
@@ -12,6 +20,7 @@ android {
         targetSdk 35
         versionCode 210
         versionName '21.0'
+        resValue 'string', 'aidi_gateway_endpoint', aidiGatewayEndpoint
     }
 
     buildTypes {
@@ -22,4 +31,8 @@ android {
             minifyEnabled false
         }
     }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
 }

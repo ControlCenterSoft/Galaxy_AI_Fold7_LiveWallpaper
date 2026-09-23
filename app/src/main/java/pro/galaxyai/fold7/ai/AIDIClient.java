@@ -4,18 +4,19 @@ import android.content.Context;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Runtime coordinator for AIDI decisions.
- *
- * Networking is isolated behind AIDIGatewayTransport, so the wallpaper engine
- * never blocks on gateway I/O and can transparently fall back to local logic.
+ * Runtime coordinator for AIDI decisions with bounded on-device profile memory.
+ * Network failures never block rendering: LocalFallbackAI remains active while
+ * GatewayRecoveryPolicy schedules progressively paced background retries.
  */
 public final class AIDIClient {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean requestInFlight = new AtomicBoolean(false);
     private final LocalFallbackAI fallbackAI = new LocalFallbackAI();
+    private final GatewayRecoveryPolicy recoveryPolicy = new GatewayRecoveryPolicy();
     private final AIDIGatewayTransport transport;
     private final AIProfileMemory profileMemory;
 
@@ -25,6 +26,7 @@ public final class AIDIClient {
     private volatile String lastGatewayError = "";
     private volatile long lastGatewayLatencyMs = -1L;
     private volatile long lastGatewaySuccessAtMs = 0L;
+    private volatile long fallbackSinceAtMs = 0L;
 
     public AIDIClient() {
         this(new HttpAIDIGatewayTransport(), null);
@@ -32,6 +34,10 @@ public final class AIDIClient {
 
     public AIDIClient(Context context) {
         this(new HttpAIDIGatewayTransport(), new AIProfileMemory(context));
+    }
+
+    public AIDIClient(Context context, String endpoint) {
+        this(new HttpAIDIGatewayTransport(endpoint), new AIProfileMemory(context));
     }
 
     public AIDIClient(AIDIGatewayTransport transport) {
@@ -64,10 +70,18 @@ public final class AIDIClient {
         return lastGatewaySuccessAtMs;
     }
 
-    /**
-     * Lets the renderer avoid collecting battery/display state on every frame.
-     * requestIfNeeded() performs the same check again to keep the transition race-safe.
-     */
+    public long getFallbackSinceAtMs() {
+        return fallbackSinceAtMs;
+    }
+
+    public int getConsecutiveGatewayFailures() {
+        return recoveryPolicy.getConsecutiveFailures();
+    }
+
+    public boolean isInFallbackMode() {
+        return "local_fallback".equals(decisionSource);
+    }
+
     public boolean needsRefresh() {
         return System.currentTimeMillis() >= nextRefreshAtMs && !requestInFlight.get();
     }
@@ -77,36 +91,51 @@ public final class AIDIClient {
         long now = System.currentTimeMillis();
         if (now < nextRefreshAtMs || !requestInFlight.compareAndSet(false, true)) return;
 
-        executor.execute(new Runnable() {
-            @Override
-            public void run() {
-                long startedAt = System.currentTimeMillis();
-                AIState requestState = state;
-                if (profileMemory != null) {
-                    requestState = state.withProfile(profileMemory.snapshot());
+        try {
+            executor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    performRequest(state);
                 }
-                try {
-                    SceneDecision remote = transport.request(requestState);
-                    decision = remote;
-                    decisionSource = "aidi_gateway";
-                    lastGatewayError = "";
-                    lastGatewayLatencyMs = Math.max(0L, System.currentTimeMillis() - startedAt);
-                    lastGatewaySuccessAtMs = System.currentTimeMillis();
-                    if (profileMemory != null) profileMemory.record(remote, true);
-                    nextRefreshAtMs = System.currentTimeMillis() + clampRemoteTtl(remote.ttlSeconds);
-                } catch (Exception error) {
-                    SceneDecision local = fallbackAI.decide(requestState);
-                    decision = local;
-                    decisionSource = "local_fallback";
-                    lastGatewayError = error.getClass().getSimpleName();
-                    lastGatewayLatencyMs = Math.max(0L, System.currentTimeMillis() - startedAt);
-                    if (profileMemory != null) profileMemory.record(local, false);
-                    nextRefreshAtMs = System.currentTimeMillis() + fallbackRetryDelay(local.ttlSeconds);
-                } finally {
-                    requestInFlight.set(false);
-                }
-            }
-        });
+            });
+        } catch (RejectedExecutionException ignored) {
+            requestInFlight.set(false);
+        }
+    }
+
+    private void performRequest(AIState state) {
+        long startedAt = System.currentTimeMillis();
+        AIState requestState = state;
+        if (profileMemory != null) {
+            requestState = state.withProfile(profileMemory.snapshot());
+        }
+
+        try {
+            SceneDecision remote = transport.request(requestState);
+            if (remote == null) throw new IllegalStateException("Gateway returned null decision");
+
+            decision = remote;
+            decisionSource = "aidi_gateway";
+            lastGatewayError = "";
+            lastGatewayLatencyMs = Math.max(0L, System.currentTimeMillis() - startedAt);
+            lastGatewaySuccessAtMs = System.currentTimeMillis();
+            fallbackSinceAtMs = 0L;
+            recoveryPolicy.onGatewaySuccess();
+            if (profileMemory != null) profileMemory.record(remote, true);
+            nextRefreshAtMs = System.currentTimeMillis() + clampRemoteTtl(remote.ttlSeconds);
+        } catch (Exception error) {
+            SceneDecision local = fallbackAI.decide(requestState);
+            decision = local;
+            decisionSource = "local_fallback";
+            lastGatewayError = error.getClass().getSimpleName();
+            lastGatewayLatencyMs = Math.max(0L, System.currentTimeMillis() - startedAt);
+            if (fallbackSinceAtMs == 0L) fallbackSinceAtMs = System.currentTimeMillis();
+            if (profileMemory != null) profileMemory.record(local, false);
+            nextRefreshAtMs = System.currentTimeMillis()
+                    + recoveryPolicy.onGatewayFailure(local.ttlSeconds);
+        } finally {
+            requestInFlight.set(false);
+        }
     }
 
     private static long clampRemoteTtl(long ttlSeconds) {
@@ -115,14 +144,6 @@ public final class AIDIClient {
                 : AIDIConfig.DEFAULT_REFRESH_MS;
         return Math.max(AIDIConfig.MIN_REFRESH_MS,
                 Math.min(AIDIConfig.MAX_REFRESH_MS, requested));
-    }
-
-    private static long fallbackRetryDelay(long ttlSeconds) {
-        long localTtl = ttlSeconds > 0
-                ? ttlSeconds * 1000L
-                : AIDIConfig.FAILURE_BACKOFF_MS;
-        long retry = Math.min(AIDIConfig.FAILURE_BACKOFF_MS, localTtl);
-        return Math.max(AIDIConfig.MIN_REFRESH_MS, retry);
     }
 
     public void shutdown() {

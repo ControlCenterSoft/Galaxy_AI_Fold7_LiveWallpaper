@@ -1,8 +1,6 @@
 package pro.galaxyai.fold7.ai;
 
 public final class AIDIConfig {
-    // v20 production prototype uses the live LAN/VPN AIDI Gateway directly.
-    // TLS + DNS hardening is tracked for the production security release.
     public static final String DEFAULT_ENDPOINT =
             "http://192.168.10.214:8088/api/v1/scene/analyze";
     public static final String PROTOCOL_VERSION = "scene-v1";
@@ -16,7 +14,8 @@ public final class AIDIConfig {
     public static final long MIN_REFRESH_MS = 60_000L;
     public static final long DEFAULT_REFRESH_MS = 900_000L;
     public static final long MAX_REFRESH_MS = 3_600_000L;
-    public static final long FAILURE_BACKOFF_MS = 120_000L;
+    public static final long FAILURE_BACKOFF_BASE_MS = 60_000L;
+    public static final long FAILURE_BACKOFF_MAX_MS = 900_000L;
 
     private AIDIConfig() {
     }

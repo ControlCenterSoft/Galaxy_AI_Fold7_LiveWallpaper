@@ -12,30 +12,46 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify v21 memory sources
+      - name: Verify v21 memory and gateway hardening sources
         run: |
           python3 - <<'PY'
           from pathlib import Path
           state = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIState.java').read_text()
           memory = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIProfileMemory.java').read_text()
           client = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIDIClient.java').read_text()
+          config = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIDIConfig.java').read_text()
           service = Path('app/src/main/java/pro/galaxyai/fold7/GalaxyAIWallpaperService.java').read_text()
+          gradle = Path('app/build.gradle').read_text()
           gateway = Path('aidi_gateway/server.py').read_text()
           for token in ['profile-v1', 'average_energy', 'average_particles']:
               assert token in memory, token
           assert 'withProfile' in state
-          assert 'profileMemory.record(remote, true)' in client
-          assert 'new AIDIClient(GalaxyAIWallpaperService.this)' in service
+          for token in ['profileMemory.record(remote, true)', 'GatewayRecoveryPolicy',
+                        'isInFallbackMode', 'fallbackSinceAtMs', 'RejectedExecutionException']:
+              assert token in client, token
+          for token in ['FAILURE_BACKOFF_BASE_MS', 'FAILURE_BACKOFF_MAX_MS']:
+              assert token in config, token
+          assert 'aidi_gateway_endpoint' in service
+          assert 'AIDI_GATEWAY_ENDPOINT' in gradle
+          assert 'resValue' in gradle
           assert 'MemoryStore' in gateway
           assert 'memory_context' in gateway
           PY
+
+      - name: Validate AIDI v21 deployment assets
+        run: |
+          bash -n aidi_gateway/install.sh
+          grep -q '^DynamicUser=true$' aidi_gateway/aidi-gateway.service
+          grep -q '^EnvironmentFile=-/etc/aidi-gateway/aidi-gateway.env$' aidi_gateway/aidi-gateway.service
+          grep -q 'memory.py' aidi_gateway/install.sh
+          grep -q '^AIDI_QDRANT_COLLECTION=' aidi_gateway/aidi-gateway.env.example
+          python3 -m py_compile aidi_gateway/server.py aidi_gateway/memory.py aidi_gateway/probe_real_gateway.py
 
       - name: Smoke test bounded AIDI memory
         env:
           PYTHONPATH: aidi_gateway
           AIDI_QDRANT_URL: ''
         run: |
-          python3 -m py_compile aidi_gateway/server.py aidi_gateway/memory.py
           python3 - <<'PY'
           from memory import MemoryStore
           store = MemoryStore()
@@ -71,7 +87,7 @@ jobs:
           assert stats['qdrant_enabled'] is False
           PY
 
-      - name: Integration test AIDI Gateway v21 profile and memory contract
+      - name: Integration test AIDI Gateway v21 profile memory and correlation
         env:
           PYTHONPATH: aidi_gateway
           AIDI_GATEWAY_HOST: 127.0.0.1
@@ -96,8 +112,6 @@ jobs:
             -H 'X-AIDI-Protocol: scene-v1' \
             -H "X-AIDI-Request-Id: $REQUEST_ID" \
             -d '{"device":"GalaxyFold7-ci","app_version":"21.0","request_id":"ci-v21-memory-42","captured_at_ms":1770000000000,"state_sequence":42,"state":{"battery":82,"charging":false,"fold_state":"main","hour":22,"motion_level":0.18,"display":{"width_px":2176,"height_px":1812,"orientation":"landscape"}},"profile":{"schema":"profile-v1","samples":5,"average_energy":0.37,"average_particles":0.88,"last_scene":"deep_nebula","last_avatar":"calm","gateway_successes":4,"fallback_count":1}}'
-          cat /tmp/aidi-v21-headers
-          cat /tmp/aidi-v21-response.json
 
           python3 - <<'PY'
           import json
@@ -106,6 +120,7 @@ jobs:
           body = json.loads(Path('/tmp/aidi-v21-response.json').read_text())
           health = json.loads(Path('/tmp/aidi-v21-health.json').read_text())
           assert 'x-aidi-protocol: scene-v1' in headers
+          assert 'x-aidi-request-id: ci-v21-memory-42' in headers
           assert body['request_id'] == 'ci-v21-memory-42'
           assert body['memory']['profile_samples'] == 5
           assert body['memory']['recall_backend'] in ('none', 'local', 'qdrant')
@@ -113,6 +128,10 @@ jobs:
           assert health['version'] == '0.21'
           assert health['memory']['qdrant_enabled'] is False
           PY
+
+          python3 aidi_gateway/probe_real_gateway.py \
+            --base-url http://127.0.0.1:8766 \
+            --require-correlation
 
       - uses: actions/setup-java@v5
         with:
@@ -131,6 +150,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
+
+      - name: Test Gateway recovery policy
+        run: gradle --no-daemon :app:testDebugUnitTest
 
       - name: Build v21.0
         run: gradle --no-daemon :app:assembleDebug

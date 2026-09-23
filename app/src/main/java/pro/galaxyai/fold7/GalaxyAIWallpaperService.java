@@ -15,7 +15,6 @@ import pro.galaxyai.fold7.engine.*;
 
 public class GalaxyAIWallpaperService extends WallpaperService {
 
-    // Preserve the v9+ namespace so upgrades keep the same personal universe.
     private static final String PREFS_UNIVERSE = "personal_universe_v9";
     private static final String KEY_SCENE_SEED = "scene_seed";
     private static final String KEY_EVOLUTION_EPOCH = "v10_evolution_epoch";
@@ -65,7 +64,10 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private final MotionControllerV6 motion = new MotionControllerV6();
         private final AIStateCollector stateCollector =
                 new AIStateCollector(GalaxyAIWallpaperService.this);
-        private final AIDIClient aidi = new AIDIClient(GalaxyAIWallpaperService.this);
+        private final AIDIClient aidi = new AIDIClient(
+                GalaxyAIWallpaperService.this,
+                GalaxyAIWallpaperService.this.getString(R.string.aidi_gateway_endpoint)
+        );
         private final MemoryAwareUniverseControllerV21 universe;
         private boolean visible;
         private long frameDelayMillis = 37L;
@@ -121,8 +123,6 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 fold.update(main);
                 camera.update(fold.getProgress());
 
-                // Battery/display state is collected only when AIDI is due for refresh.
-                // AIDIClient enriches this snapshot with bounded on-device v21 memory.
                 if (aidi.needsRefresh()) {
                     AIState state = stateCollector.capture(
                             main,
