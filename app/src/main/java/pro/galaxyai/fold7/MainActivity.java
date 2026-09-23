@@ -48,7 +48,7 @@ public class MainActivity extends Activity {
                 ScrollView.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText("Galaxy AI Fold7 v36 — Фотореалистичный AI-персонаж");
+        title.setText("Galaxy AI Fold7 v37 — Живой фотореалистичный AI-персонаж");
         title.setTextSize(21f);
         root.addView(title, fullWidth());
 
@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
         root.addView(contextOff, buttonParams());
 
         TextView portraitInfo = new TextView(this);
-        portraitInfo.setText("Живой AI-персонаж теперь использует фотореалистичный портрет с мягким дыханием и параллаксом. Эмоции, внимание, свечение, частицы и переход между экранами Fold сохраняются.");
+        portraitInfo.setText("Фотореалистичный AI-персонаж получил естественное моргание, микродвижения взгляда, мягкое дыхание и эмоциональное освещение. Состояние AIDI, эффекты, частицы и переход между экранами Fold сохраняются.");
         portraitInfo.setTextSize(14f);
         portraitInfo.setPadding(0, dp(8), 0, dp(10));
         root.addView(portraitInfo, fullWidth());
