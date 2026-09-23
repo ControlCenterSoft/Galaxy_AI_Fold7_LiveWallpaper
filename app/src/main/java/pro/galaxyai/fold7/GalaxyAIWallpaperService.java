@@ -23,7 +23,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
     @Override
     public Engine onCreateEngine() {
         UniverseIdentity identity = loadUniverseIdentity();
-        return new V20Engine(identity.seed, identity.evolutionEpoch);
+        return new V21Engine(identity.seed, identity.evolutionEpoch);
     }
 
     private UniverseIdentity loadUniverseIdentity() {
@@ -52,7 +52,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         }
     }
 
-    private class V20Engine extends Engine {
+    private class V21Engine extends Engine {
         private final Handler handler = new Handler();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
@@ -65,13 +65,13 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private final MotionControllerV6 motion = new MotionControllerV6();
         private final AIStateCollector stateCollector =
                 new AIStateCollector(GalaxyAIWallpaperService.this);
-        private final AIDIClient aidi = new AIDIClient();
-        private final LivingUniverseControllerV20 universe;
+        private final AIDIClient aidi = new AIDIClient(GalaxyAIWallpaperService.this);
+        private final MemoryAwareUniverseControllerV21 universe;
         private boolean visible;
         private long frameDelayMillis = 37L;
 
-        V20Engine(long universeSeed, long evolutionEpoch) {
-            universe = new LivingUniverseControllerV20(universeSeed, evolutionEpoch);
+        V21Engine(long universeSeed, long evolutionEpoch) {
+            universe = new MemoryAwareUniverseControllerV21(universeSeed, evolutionEpoch);
         }
 
         private final Runnable loop = new Runnable() {
@@ -121,8 +121,8 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 fold.update(main);
                 camera.update(fold.getProgress());
 
-                // Battery and display context are relatively expensive to collect on Android.
-                // Only create a fresh state snapshot when AIDI is actually due for refresh.
+                // Battery/display state is collected only when AIDI is due for refresh.
+                // AIDIClient enriches this snapshot with bounded on-device v21 memory.
                 if (aidi.needsRefresh()) {
                     AIState state = stateCollector.capture(
                             main,
