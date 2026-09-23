@@ -11,6 +11,7 @@ import java.security.SecureRandom;
 import pro.galaxyai.fold7.ai.AIDIClient;
 import pro.galaxyai.fold7.ai.AIState;
 import pro.galaxyai.fold7.ai.AIStateCollector;
+import pro.galaxyai.fold7.ai.HttpAIDIGatewayTransport;
 import pro.galaxyai.fold7.engine.*;
 
 public class GalaxyAIWallpaperService extends WallpaperService {
@@ -65,7 +66,11 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private final MotionControllerV6 motion = new MotionControllerV6();
         private final AIStateCollector stateCollector =
                 new AIStateCollector(GalaxyAIWallpaperService.this);
-        private final AIDIClient aidi = new AIDIClient();
+        private final AIDIClient aidi = new AIDIClient(
+                new HttpAIDIGatewayTransport(
+                        GalaxyAIWallpaperService.this.getString(R.string.aidi_gateway_endpoint)
+                )
+        );
         private final LivingUniverseControllerV20 universe;
         private boolean visible;
         private long frameDelayMillis = 37L;

@@ -21,6 +21,7 @@ jobs:
           runtime = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIDIClient.java').read_text()
           fallback = Path('app/src/main/java/pro/galaxyai/fold7/ai/LocalFallbackAI.java').read_text()
           service = Path('app/src/main/java/pro/galaxyai/fold7/GalaxyAIWallpaperService.java').read_text()
+          gradle = Path('app/build.gradle').read_text()
           for token in ['captured_at_ms', 'state_sequence', 'display', 'width_px', 'height_px']:
               assert token in state, token
           for token in ['X-AIDI-Request-Id', 'request_id', 'X-AIDI-Protocol']:
@@ -31,14 +32,25 @@ jobs:
               assert token in fallback, token
           assert 'aidi.needsRefresh()' in service
           assert 'stateCollector.capture(' in service
+          assert 'aidi_gateway_endpoint' in service
+          assert 'AIDI_GATEWAY_ENDPOINT' in gradle
+          assert 'resValue' in gradle
           PY
+
+      - name: Validate AIDI production deployment assets
+        run: |
+          bash -n aidi_gateway/install.sh
+          grep -q '^DynamicUser=true$' aidi_gateway/aidi-gateway.service
+          grep -q '^EnvironmentFile=-/etc/aidi-gateway/aidi-gateway.env$' aidi_gateway/aidi-gateway.service
+          grep -q '^AIDI_OLLAMA_URL=' aidi_gateway/aidi-gateway.env.example
+          python3 -m py_compile aidi_gateway/server.py aidi_gateway/probe_real_gateway.py
 
       - name: Test AIDI Gateway Simulator and Scene Decision contract
         run: python3 gateway_simulator/test_scene_protocol.py
 
       - name: Smoke test standalone AIDI Gateway Simulator
         run: |
-          python3 gateway_simulator/aidi_gateway_simulator.py --host 127.0.0.1 --port 8765 > /tmp/aidi-gateway.log 2>&1 &
+          python3 gateway_simulator/aidi_gateway_simulator.py --host 127.0.0.1 --port 8765 > /tmp/aidi-gateway-sim.log 2>&1 &
           GATEWAY_PID=$!
           trap 'kill $GATEWAY_PID || true' EXIT
           for i in $(seq 1 20); do
@@ -54,6 +66,22 @@ jobs:
           assert body['protocol'] == 'scene-v1'
           assert body['service'] == 'aidi-gateway-simulator'
           PY
+
+      - name: Probe production AIDI Gateway implementation locally
+        run: |
+          AIDI_GATEWAY_HOST=127.0.0.1 \
+          AIDI_GATEWAY_PORT=8766 \
+          AIDI_OLLAMA_URL=http://127.0.0.1:9/api/chat \
+            python3 aidi_gateway/server.py > /tmp/aidi-gateway-production.log 2>&1 &
+          GATEWAY_PID=$!
+          trap 'kill $GATEWAY_PID || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8766/health >/dev/null; then break; fi
+            sleep 0.2
+          done
+          python3 aidi_gateway/probe_real_gateway.py \
+            --base-url http://127.0.0.1:8766 \
+            --require-correlation
 
       - uses: actions/setup-java@v5
         with:
