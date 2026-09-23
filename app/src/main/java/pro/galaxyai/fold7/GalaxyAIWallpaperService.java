@@ -9,6 +9,7 @@ import android.view.SurfaceHolder;
 import java.security.SecureRandom;
 
 import pro.galaxyai.fold7.ai.AIDIClient;
+import pro.galaxyai.fold7.ai.AIProfileStore;
 import pro.galaxyai.fold7.ai.AIState;
 import pro.galaxyai.fold7.ai.AIStateCollector;
 import pro.galaxyai.fold7.engine.*;
@@ -23,7 +24,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
     @Override
     public Engine onCreateEngine() {
         UniverseIdentity identity = loadUniverseIdentity();
-        return new V20Engine(identity.seed, identity.evolutionEpoch);
+        return new V21Engine(identity.seed, identity.evolutionEpoch);
     }
 
     private UniverseIdentity loadUniverseIdentity() {
@@ -52,7 +53,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         }
     }
 
-    private class V20Engine extends Engine {
+    private class V21Engine extends Engine {
         private final Handler handler = new Handler();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
@@ -63,14 +64,16 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private final GlowEngineV6 glow = new GlowEngineV6();
         private final HologramEngineV6 hologram = new HologramEngineV6();
         private final MotionControllerV6 motion = new MotionControllerV6();
+        private final AIProfileStore profileStore =
+                new AIProfileStore(GalaxyAIWallpaperService.this);
         private final AIStateCollector stateCollector =
-                new AIStateCollector(GalaxyAIWallpaperService.this);
-        private final AIDIClient aidi = new AIDIClient();
+                new AIStateCollector(GalaxyAIWallpaperService.this, profileStore);
+        private final AIDIClient aidi = new AIDIClient(profileStore);
         private final LivingUniverseControllerV20 universe;
         private boolean visible;
         private long frameDelayMillis = 37L;
 
-        V20Engine(long universeSeed, long evolutionEpoch) {
+        V21Engine(long universeSeed, long evolutionEpoch) {
             universe = new LivingUniverseControllerV20(universeSeed, evolutionEpoch);
         }
 
