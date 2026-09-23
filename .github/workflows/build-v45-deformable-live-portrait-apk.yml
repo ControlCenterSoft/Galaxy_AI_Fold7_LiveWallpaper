@@ -1,0 +1,130 @@
+name: Build Galaxy AI Fold7 v45.0 Deformable Live Portrait APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v45-deformable-live-portrait
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v45 deformable portrait and inherited AI contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          avatar = Path('app/src/main/java/pro/galaxyai/fold7/engine/DeformableLivePortraitV45.java').read_text()
+          service = Path('app/src/main/java/pro/galaxyai/fold7/GalaxyAIWallpaperService.java').read_text()
+          living = Path('app/src/main/java/pro/galaxyai/fold7/engine/LivingAvatarMotionV40.java').read_text()
+          gesture = Path('app/src/main/java/pro/galaxyai/fold7/engine/AutonomousGestureV42.java').read_text()
+          speech = Path('app/src/main/java/pro/galaxyai/fold7/engine/SpeechFaceSyncV41.java').read_text()
+          voice = Path('app/src/main/java/pro/galaxyai/fold7/engine/AmbientPersonalityControllerV29.java').read_text()
+          activity = Path('app/src/main/java/pro/galaxyai/fold7/MainActivity.java').read_text()
+          personality = Path('app/src/main/java/pro/galaxyai/fold7/ai/RussianAIPersonalityV33.java').read_text()
+          state = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIState.java').read_text()
+          fallback = Path('app/src/main/java/pro/galaxyai/fold7/ai/LocalFallbackAI.java').read_text()
+          gradle = Path('app/build.gradle').read_text()
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+
+          for token in [
+              'v45 Deformable Live Portrait renderer', 'drawBitmapMesh', 'MESH_X = 20',
+              'MESH_Y = 36', 'Texture-only blink', 'TTS mouth articulation',
+              'setMouthOpen', 'onTouch', 'radialWeight', 'gaussian'
+          ]:
+              assert token in avatar, token
+          for forbidden in ['drawOval(', 'RadialGradient', 'LinearGradient', 'drawCircle(', 'Path(']:
+              assert forbidden not in avatar, forbidden
+          for token in [
+              'new DeformableLivePortraitV45', 'avatar.setMouthOpen(speechFace.getMouthOpen())',
+              'avatar.onTouch(nx, ny, pressed)', 'new LivingAvatarMotionV40()',
+              'new SpeechFaceSyncV41()', 'new AutonomousGestureV42()'
+          ]:
+              assert token in service, token
+          assert 'speechFace.draw(' not in service
+          for token in ['applyPortraitTransform', 'onTouch', 'foldImpulse']:
+              assert token in living, token
+          for token in ['applyGestureTransform', 'chooseGesture', 'scheduleNext']:
+              assert token in gesture, token
+          for token in ['getMouthOpen', 'targetOpen', 'speechEnergy']:
+              assert token in speech, token
+          for token in ['UtteranceProgressListener', 'getSpeechActivity()', 'RussianAIPersonalityV33.locale()']:
+              assert token in voice, token
+
+          assert 'Деформируемый живой портрет' in activity
+          assert 'Микрофон' in activity and 'Камера' in activity
+          assert 'LOCALE_TAG = "ru-RU"' in personality
+          assert 'LANGUAGE = "ru"' in personality
+          for token in ['"locale"', 'RussianAIPersonalityV33.LOCALE_TAG', '"language"']:
+              assert token in state, token
+          assert 'local-fallback' in fallback
+
+          assert "versionCode 450" in gradle
+          assert "versionName '45.0'" in gradle
+          assert 'Galaxy AI Fold7 v45' in manifest
+          assert 'android.permission.CAMERA' not in manifest
+          assert 'android.permission.RECORD_AUDIO' not in manifest
+          assert 'android.permission.ACCESS_FINE_LOCATION' not in manifest
+          PY
+
+      - name: Reconstruct and verify inherited photoreal portrait
+        run: |
+          cat \
+            app/src/main/res/raw/ai_avatar_v36_1.txt \
+            app/src/main/res/raw/ai_avatar_v36_2.txt \
+            app/src/main/res/raw/ai_avatar_v36_3.txt \
+            app/src/main/res/raw/ai_avatar_v36_4.txt \
+            | base64 -d > /tmp/ai_avatar_v36.webp
+          test -s /tmp/ai_avatar_v36.webp
+          echo "752d82f39826a77a8dd1eec72041a8a8aaa8ae559eb5f6381c8068135a64e133  /tmp/ai_avatar_v36.webp" | sha256sum -c -
+          file /tmp/ai_avatar_v36.webp
+
+      - name: Verify inherited AIDI gateway stack compiles
+        run: python3 -m py_compile aidi_gateway/*.py gateway_simulator/*.py
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v45.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify v45 APK metadata, permissions and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v45.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v45.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='450'"
+          echo "$BADGING" | grep -q "versionName='45.0'"
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Fold7_LiveWallpaper_v45.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v45.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v45.0.apk | tee Galaxy_AI_Fold7_LiveWallpaper_v45.0.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v45.0
+          path: |
+            Galaxy_AI_Fold7_LiveWallpaper_v45.0.apk
+            Galaxy_AI_Fold7_LiveWallpaper_v45.0.sha256
+          if-no-files-found: error
+          retention-days: 30
