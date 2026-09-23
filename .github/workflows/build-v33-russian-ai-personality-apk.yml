@@ -1,0 +1,130 @@
+name: Build Galaxy AI Fold7 v33.0 Russian AI Personality APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v33-russian-ai-personality
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v33 Russian AI communication contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          language = Path('app/src/main/java/pro/galaxyai/fold7/ai/RussianAIPersonalityV33.java').read_text()
+          ambient = Path('app/src/main/java/pro/galaxyai/fold7/engine/AmbientPersonalityControllerV29.java').read_text()
+          state = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIState.java').read_text()
+          activity = Path('app/src/main/java/pro/galaxyai/fold7/MainActivity.java').read_text()
+          gradle = Path('app/build.gradle').read_text()
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+          plan = Path('V33_RUSSIAN_AI_PERSONALITY_PLAN.md').read_text()
+
+          for token in ['LANGUAGE = "ru"', 'LOCALE_TAG = "ru-RU"', 'CULTURE = "russian"', 'RESPONSE_STYLE = "friendly"']:
+              assert token in language, token
+          for token in ['calm', 'focused', 'thinking', 'happy', 'sleep', 'Я рядом', 'Фокусируюсь', 'Размышляю', 'Тихий режим']:
+              assert token in language, token
+          assert 'tts.setLanguage(RussianAIPersonalityV33.locale())' in ambient
+          assert 'galaxy-ai-v33-' in ambient
+          for token in ['"locale"', 'RussianAIPersonalityV33.LOCALE_TAG', '"culture"', '"response_style"', '"communication"']:
+              assert token in state, token
+          assert 'Язык общения AI на телефоне: Русский (ru-RU)' in activity
+          assert 'Голос AI:' in activity
+          assert "versionCode 330" in gradle
+          assert "versionName '33.0'" in gradle
+          assert 'Galaxy AI Fold7 v33' in manifest
+          assert 'android.permission.CAMERA' not in manifest
+          assert 'android.permission.RECORD_AUDIO' not in manifest
+          assert 'android.permission.ACCESS_FINE_LOCATION' not in manifest
+          assert 'No raw audio, camera frames, location coordinates' in plan
+          PY
+
+      - name: Run v33 JVM Russian phrase test
+        run: |
+          cat >/tmp/RussianAIPersonalityV33Test.java <<'JAVA'
+          import pro.galaxyai.fold7.ai.RussianAIPersonalityV33;
+
+          public final class RussianAIPersonalityV33Test {
+              private static void require(boolean ok, String message) {
+                  if (!ok) throw new AssertionError(message);
+              }
+
+              public static void main(String[] args) {
+                  require("ru-RU".equals(RussianAIPersonalityV33.LOCALE_TAG), "locale tag");
+                  require("ru".equals(RussianAIPersonalityV33.locale().getLanguage()), "locale language");
+                  require("RU".equals(RussianAIPersonalityV33.locale().getCountry()), "locale country");
+                  require("thinking".equals(RussianAIPersonalityV33.normalizeEmotion("aware")), "aware mapping");
+                  require("sleep".equals(RussianAIPersonalityV33.normalizeEmotion("resting")), "resting mapping");
+
+                  String[] emotions = {"calm", "focused", "thinking", "happy", "sleep"};
+                  for (String emotion : emotions) {
+                      for (int level = 0; level <= 2; level++) {
+                          String phrase = RussianAIPersonalityV33.phraseFor(emotion, level);
+                          require(phrase != null && !phrase.trim().isEmpty(), emotion + " phrase");
+                          require(phrase.matches(".*[А-Яа-яЁё].*"), emotion + " must be Russian");
+                      }
+                  }
+                  require("тихий".equals(RussianAIPersonalityV33.reactionLevelName(0)), "quiet label");
+                  require("обычный".equals(RussianAIPersonalityV33.reactionLevelName(1)), "normal label");
+                  require("выразительный".equals(RussianAIPersonalityV33.reactionLevelName(2)), "expressive label");
+                  System.out.println("v33 Russian AI personality PASS");
+              }
+          }
+          JAVA
+          mkdir -p /tmp/v33-test
+          javac -encoding UTF-8 -d /tmp/v33-test \
+            app/src/main/java/pro/galaxyai/fold7/ai/RussianAIPersonalityV33.java \
+            /tmp/RussianAIPersonalityV33Test.java
+          java -cp /tmp/v33-test RussianAIPersonalityV33Test
+
+      - name: Verify inherited AIDI gateway stack compiles
+        run: python3 -m py_compile aidi_gateway/*.py gateway_simulator/*.py
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v33.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify Russian AI APK metadata, permissions and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v33.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v33.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='330'"
+          echo "$BADGING" | grep -q "versionName='33.0'"
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Fold7_LiveWallpaper_v33.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v33.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v33.0.apk | tee Galaxy_AI_Fold7_LiveWallpaper_v33.0.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v33.0
+          path: |
+            Galaxy_AI_Fold7_LiveWallpaper_v33.0.apk
+            Galaxy_AI_Fold7_LiveWallpaper_v33.0.sha256
+          if-no-files-found: error
+          retention-days: 30
