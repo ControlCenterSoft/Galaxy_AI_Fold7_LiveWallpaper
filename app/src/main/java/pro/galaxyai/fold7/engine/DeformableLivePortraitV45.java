@@ -32,6 +32,7 @@ public final class DeformableLivePortraitV45 {
     private final Paint paint = new Paint(
             Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
     private final float[] verts = new float[(MESH_X + 1) * (MESH_Y + 1) * 2];
+    private final AttentionGazeControllerV46 attentionGaze = new AttentionGazeControllerV46();
 
     private Bitmap portrait;
     private float time;
@@ -64,6 +65,9 @@ public final class DeformableLivePortraitV45 {
             serenity += (clamp(decision.serenity, 0f, 1f) - serenity) * k;
             emotion = normalizeEmotion(decision.avatarState);
         }
+        attentionGaze.update(decision, dt);
+        gazeX = attentionGaze.getGazeX();
+        gazeY = attentionGaze.getGazeY();
         touchWeight *= (float) Math.pow(0.075f, dt);
         updateBlinkState(dt);
     }
@@ -80,6 +84,7 @@ public final class DeformableLivePortraitV45 {
     public void onTouch(float normalizedX, float normalizedY, boolean pressed) {
         touchX = clamp(normalizedX, -1f, 1f);
         touchY = clamp(normalizedY, -1f, 1f);
+        attentionGaze.onTouch(normalizedX, normalizedY, pressed);
         if (pressed) touchWeight = 1f;
         else touchWeight = Math.max(touchWeight, 0.52f);
     }
