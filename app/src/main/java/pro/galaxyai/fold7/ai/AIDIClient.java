@@ -1,27 +1,45 @@
 package pro.galaxyai.fold7.ai;
 
-import org.json.JSONObject;
-
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/**
+ * Runtime coordinator for AIDI decisions.
+ *
+ * Networking is isolated behind AIDIGatewayTransport, so the wallpaper engine
+ * never blocks on gateway I/O and can transparently fall back to local logic.
+ */
 public final class AIDIClient {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean requestInFlight = new AtomicBoolean(false);
     private final LocalFallbackAI fallbackAI = new LocalFallbackAI();
+    private final AIDIGatewayTransport transport;
+
     private volatile SceneDecision decision = SceneDecision.neutral("bootstrap");
     private volatile long nextRefreshAtMs = 0L;
+    private volatile String decisionSource = "bootstrap";
+    private volatile String lastGatewayError = "";
+
+    public AIDIClient() {
+        this(new HttpAIDIGatewayTransport());
+    }
+
+    public AIDIClient(AIDIGatewayTransport transport) {
+        if (transport == null) throw new IllegalArgumentException("transport == null");
+        this.transport = transport;
+    }
 
     public SceneDecision getDecision() {
         return decision;
+    }
+
+    public String getDecisionSource() {
+        return decisionSource;
+    }
+
+    public String getLastGatewayError() {
+        return lastGatewayError;
     }
 
     public void requestIfNeeded(final AIState state) {
@@ -32,15 +50,17 @@ public final class AIDIClient {
             @Override
             public void run() {
                 try {
-                    SceneDecision remote = requestRemote(state);
+                    SceneDecision remote = transport.request(state);
                     decision = remote;
-                    nextRefreshAtMs = System.currentTimeMillis()
-                            + Math.max(AIDIConfig.MIN_REFRESH_MS, remote.ttlSeconds * 1000L);
-                } catch (Exception ignored) {
+                    decisionSource = "aidi_gateway";
+                    lastGatewayError = "";
+                    nextRefreshAtMs = System.currentTimeMillis() + clampRemoteTtl(remote.ttlSeconds);
+                } catch (Exception error) {
                     SceneDecision local = fallbackAI.decide(state);
                     decision = local;
-                    nextRefreshAtMs = System.currentTimeMillis()
-                            + Math.max(AIDIConfig.MIN_REFRESH_MS, local.ttlSeconds * 1000L);
+                    decisionSource = "local_fallback";
+                    lastGatewayError = error.getClass().getSimpleName();
+                    nextRefreshAtMs = System.currentTimeMillis() + fallbackRetryDelay(local.ttlSeconds);
                 } finally {
                     requestInFlight.set(false);
                 }
@@ -48,40 +68,20 @@ public final class AIDIClient {
         });
     }
 
-    private SceneDecision requestRemote(AIState state) throws Exception {
-        URL url = new URL(AIDIConfig.DEFAULT_ENDPOINT);
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setConnectTimeout(AIDIConfig.CONNECT_TIMEOUT_MS);
-        connection.setReadTimeout(AIDIConfig.READ_TIMEOUT_MS);
-        connection.setRequestMethod("POST");
-        connection.setDoOutput(true);
-        connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-        connection.setRequestProperty("Accept", "application/json");
-        connection.setRequestProperty("X-AIDI-Protocol", "scene-v1");
+    private static long clampRemoteTtl(int ttlSeconds) {
+        long requested = ttlSeconds > 0
+                ? ttlSeconds * 1000L
+                : AIDIConfig.DEFAULT_REFRESH_MS;
+        return Math.max(AIDIConfig.MIN_REFRESH_MS,
+                Math.min(AIDIConfig.MAX_REFRESH_MS, requested));
+    }
 
-        byte[] body = state.toJson().toString().getBytes(StandardCharsets.UTF_8);
-        connection.setFixedLengthStreamingMode(body.length);
-        try (OutputStream output = connection.getOutputStream()) {
-            output.write(body);
-        }
-
-        int code = connection.getResponseCode();
-        if (code < 200 || code >= 300) {
-            connection.disconnect();
-            throw new IllegalStateException("AIDI HTTP " + code);
-        }
-
-        StringBuilder response = new StringBuilder();
-        try (InputStream stream = connection.getInputStream();
-             BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) response.append(line);
-        } finally {
-            connection.disconnect();
-        }
-
-        JSONObject root = new JSONObject(response.toString());
-        return SceneDecision.fromGateway(root);
+    private static long fallbackRetryDelay(int ttlSeconds) {
+        long localTtl = ttlSeconds > 0
+                ? ttlSeconds * 1000L
+                : AIDIConfig.FAILURE_BACKOFF_MS;
+        long retry = Math.min(AIDIConfig.FAILURE_BACKOFF_MS, localTtl);
+        return Math.max(AIDIConfig.MIN_REFRESH_MS, retry);
     }
 
     public void shutdown() {
