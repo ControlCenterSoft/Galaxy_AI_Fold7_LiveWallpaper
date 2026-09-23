@@ -4,12 +4,8 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.Path;
-import android.graphics.RadialGradient;
 import android.graphics.RectF;
-import android.graphics.Shader;
 import android.util.Base64;
 
 import java.io.ByteArrayOutputStream;
@@ -19,19 +15,20 @@ import pro.galaxyai.fold7.R;
 import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
- * v37 lifelike motion over the v36 photoreal portrait.
+ * v43 photoreal surface guard over the original v36 portrait asset.
  *
- * The portrait remains fully local. Natural blink envelopes, tiny eye glints,
- * micro-saccade drift, breathing and emotion-aware light are generated from
- * bounded scene state. No camera, microphone, biometric input or network
- * image upload/download is used.
+ * Important rendering rule: the photographic face itself is never painted over with
+ * procedural eyelid ovals, eye masks, face circles or synthetic skin fills. The avatar
+ * remains alive through bounded portrait transforms (v40/v42), breathing and tiny local
+ * parallax while the source portrait stays opaque. This prevents the visible "blue mask"
+ * regression reported on-device while retaining all local/privacy-first behavior.
  */
 public final class PhotorealAIAvatarRendererV36 {
-    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
-    private final Paint lidPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint lashPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint glintPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint softPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private static final float COVER_FRAME_SCALE = 0.970f;
+    private static final float MAIN_FRAME_SCALE = 0.955f;
+
+    private final Paint paint = new Paint(
+            Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
 
     private Bitmap portrait;
     private float time;
@@ -45,8 +42,6 @@ public final class PhotorealAIAvatarRendererV36 {
 
     public PhotorealAIAvatarRendererV36(Context context) {
         portrait = loadPortrait(context);
-        lashPaint.setStyle(Paint.Style.STROKE);
-        lashPaint.setStrokeCap(Paint.Cap.ROUND);
     }
 
     public void update(SceneDecision decision, float deltaSeconds) {
@@ -70,57 +65,69 @@ public final class PhotorealAIAvatarRendererV36 {
     public void draw(Canvas canvas, int width, int height, boolean mainDisplay) {
         if (!isReady() || width <= 0 || height <= 0) return;
 
-        float activity = "sleep".equals(emotion) ? 0.22f : ("focused".equals(emotion) ? 0.58f : 1f);
-        float breathe = 1f + (float) Math.sin(time * 0.42f) * (0.0055f + energy * 0.0035f) * activity;
-        float driftX = (float) Math.sin(time * 0.16f) * width * (mainDisplay ? 0.009f : 0.006f) * activity;
-        float driftY = (float) Math.cos(time * 0.13f) * height * 0.0035f * activity;
+        float activity = "sleep".equals(emotion) ? 0.20f
+                : ("focused".equals(emotion) ? 0.56f : 1f);
+        float breathe = 1f + (float) Math.sin(time * 0.42f)
+                * (0.0048f + energy * 0.0030f) * activity;
+        float driftX = (float) Math.sin(time * 0.16f)
+                * width * (mainDisplay ? 0.0075f : 0.0048f) * activity;
+        float driftY = (float) Math.cos(time * 0.13f)
+                * height * 0.0028f * activity;
 
-        // Tiny non-periodic-looking motion makes the gaze feel alive without camera tracking.
-        float microX = ((float) Math.sin(time * 2.71f) + (float) Math.sin(time * 5.03f + 0.8f) * 0.34f)
-                * width * 0.00065f * (0.45f + curiosity * 0.55f) * activity;
-        float microY = (float) Math.sin(time * 3.37f + 1.2f) * height * 0.00028f * activity;
+        // Local micro-saccade-like portrait drift. It moves the photographic portrait
+        // itself; no synthetic eye geometry is drawn on top of the face.
+        float microX = ((float) Math.sin(time * 2.71f)
+                + (float) Math.sin(time * 5.03f + 0.8f) * 0.34f)
+                * width * 0.00052f * (0.45f + curiosity * 0.55f) * activity;
+        float microY = (float) Math.sin(time * 3.37f + 1.2f)
+                * height * 0.00022f * activity;
         driftX += microX;
         driftY += microY;
 
-        if ("thinking".equals(emotion)) driftX *= 1.25f;
-        if ("happy".equals(emotion)) breathe += (float) Math.sin(time * 0.76f) * 0.0015f;
+        if ("thinking".equals(emotion)) driftX *= 1.18f;
+        if ("happy".equals(emotion)) {
+            breathe += (float) Math.sin(time * 0.76f) * 0.0012f;
+        }
+
+        // A blink is retained as state for gesture/timing continuity, but v43 deliberately
+        // avoids painting synthetic eyelids over the real eyes. A very small whole-portrait
+        // vertical ease keeps the timing perceptible without creating a face mask.
+        float closed = 1f - clamp(blink, 0f, 1f);
+        float blinkEase = 1f - closed * 0.0018f;
 
         float srcW = portrait.getWidth();
         float srcH = portrait.getHeight();
-        float baseScale = Math.max(width / srcW, height / srcH);
-        float scale = baseScale * breathe;
+        float cover = Math.max(width / srcW, height / srcH);
+        float frameScale = mainDisplay ? MAIN_FRAME_SCALE : COVER_FRAME_SCALE;
+        float scale = cover * frameScale * breathe;
         float drawW = srcW * scale;
-        float drawH = srcH * scale;
+        float drawH = srcH * scale * blinkEase;
 
         float left = (width - drawW) * 0.5f + driftX;
-        float cropTravel = height - drawH;
-        float portraitFocus = mainDisplay ? 0.43f : 0.47f;
-        float top = cropTravel * portraitFocus + driftY;
+        float freeY = height - drawH;
+        float focusY = mainDisplay ? 0.44f : 0.43f;
+        float top = freeY * focusY + driftY;
         RectF dst = new RectF(left, top, left + drawW, top + drawH);
 
-        int alpha = Math.round(226f + presence * 29f);
-        if ("sleep".equals(emotion)) alpha = Math.min(alpha, 236);
-        paint.setAlpha(Math.max(0, Math.min(255, alpha)));
+        // Keep the photographic face opaque. In previous builds a semi-transparent source
+        // allowed the blue glow layer to contaminate skin tones and amplify the mask effect.
+        paint.setAlpha(255);
         canvas.drawBitmap(portrait, null, dst, paint);
-
-        drawEmotionLight(canvas, dst);
-        drawNaturalBlink(canvas, dst);
-        drawEyeGlints(canvas, dst);
     }
 
     private void updateBlink(float dt) {
         if ("sleep".equals(emotion)) {
-            blink = 0.04f;
+            blink = 0.94f;
             blinkClock += dt;
             return;
         }
 
         blinkClock += dt;
         float interval = "focused".equals(emotion) ? 4.8f
-                : ("thinking".equals(emotion) ? 3.25f : ("happy".equals(emotion) ? 3.45f : 3.85f));
-        // Slight deterministic variation avoids a metronome-like blink rhythm.
+                : ("thinking".equals(emotion) ? 3.25f
+                : ("happy".equals(emotion) ? 3.45f : 3.85f));
         interval += (float) Math.sin(time * 0.071f + 0.6f) * 0.42f;
-        float duration = 0.26f;
+        float duration = 0.24f;
         if (blinkClock >= interval) {
             float p = (blinkClock - interval) / duration;
             if (p < 0.42f) blink = 1f - p / 0.42f;
@@ -134,82 +141,16 @@ public final class PhotorealAIAvatarRendererV36 {
         }
     }
 
-    private void drawNaturalBlink(Canvas canvas, RectF dst) {
-        float closed = 1f - clamp(blink, 0f, 1f);
-        if (closed < 0.045f) return;
-
-        // Normalized locations are tied to the bundled portrait crop.
-        float y = dst.top + dst.height() * 0.344f;
-        float leftX = dst.left + dst.width() * 0.366f;
-        float rightX = dst.left + dst.width() * 0.635f;
-        float eyeW = dst.width() * 0.111f;
-        float eyeH = dst.height() * 0.026f;
-        float cover = eyeH * (0.16f + closed * 1.38f);
-
-        int lidA = Math.min(238, Math.round(244f * closed));
-        lidPaint.setColor(Color.argb(lidA, 190, 147, 143));
-        drawLid(canvas, leftX, y, eyeW, cover);
-        drawLid(canvas, rightX, y, eyeW, cover);
-
-        lashPaint.setStrokeWidth(Math.max(1.2f, dst.width() * 0.0034f));
-        lashPaint.setColor(Color.argb(Math.min(220, Math.round(225f * closed)), 52, 40, 53));
-        drawLash(canvas, leftX, y, eyeW);
-        drawLash(canvas, rightX, y, eyeW);
+    public float getBlink() {
+        return blink;
     }
 
-    private void drawLid(Canvas canvas, float x, float y, float eyeW, float coverH) {
-        RectF r = new RectF(x - eyeW * 0.5f, y - coverH * 0.5f,
-                x + eyeW * 0.5f, y + coverH * 0.5f);
-        canvas.drawOval(r, lidPaint);
+    public float getFocus() {
+        return focus;
     }
 
-    private void drawLash(Canvas canvas, float x, float y, float eyeW) {
-        Path p = new Path();
-        p.moveTo(x - eyeW * 0.47f, y);
-        p.quadTo(x, y + eyeW * 0.045f, x + eyeW * 0.47f, y);
-        canvas.drawPath(p, lashPaint);
-    }
-
-    private void drawEyeGlints(Canvas canvas, RectF dst) {
-        if (blink < 0.74f || "sleep".equals(emotion)) return;
-
-        float microX = ((float) Math.sin(time * 2.77f) + (float) Math.sin(time * 4.93f) * 0.28f)
-                * dst.width() * 0.00135f;
-        float microY = (float) Math.sin(time * 3.61f + 0.9f) * dst.height() * 0.00055f;
-        float y = dst.top + dst.height() * 0.337f + microY;
-        float leftX = dst.left + dst.width() * 0.366f + microX;
-        float rightX = dst.left + dst.width() * 0.635f + microX;
-        float r = Math.max(1f, dst.width() * 0.0033f);
-
-        int a = Math.min(132, Math.round(55f + focus * 42f + curiosity * 22f));
-        glintPaint.setColor(Color.argb(a, 231, 246, 255));
-        canvas.drawCircle(leftX, y, r, glintPaint);
-        canvas.drawCircle(rightX, y, r, glintPaint);
-    }
-
-    private void drawEmotionLight(Canvas canvas, RectF dst) {
-        int color;
-        int alpha;
-        if ("happy".equals(emotion)) {
-            color = Color.rgb(255, 171, 215); alpha = 24;
-        } else if ("thinking".equals(emotion)) {
-            color = Color.rgb(159, 133, 255); alpha = 22;
-        } else if ("focused".equals(emotion)) {
-            color = Color.rgb(101, 182, 255); alpha = 20;
-        } else if ("sleep".equals(emotion)) {
-            color = Color.rgb(70, 85, 138); alpha = 17;
-        } else {
-            color = Color.rgb(112, 167, 255); alpha = 15;
-        }
-
-        float cx = dst.left + dst.width() * 0.72f;
-        float cy = dst.top + dst.height() * 0.28f;
-        float radius = dst.width() * 0.34f;
-        softPaint.setShader(new RadialGradient(cx, cy, radius,
-                Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color)),
-                Color.TRANSPARENT, Shader.TileMode.CLAMP));
-        canvas.drawCircle(cx, cy, radius, softPaint);
-        softPaint.setShader(null);
+    public float getPresence() {
+        return presence;
     }
 
     public void recycle() {
