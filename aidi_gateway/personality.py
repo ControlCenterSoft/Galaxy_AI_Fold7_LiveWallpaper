@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Bounded avatar personality policy for AIDI Gateway v23."""
+"""Bounded avatar personality policy for AIDI Gateway v23+."""
+
+from autonomous_policy import apply_autonomy
 
 
 def clamp(value, low=0.0, high=1.0):
@@ -43,4 +45,4 @@ def apply_personality(payload, decision):
     avatar["traits"] = {key: round(clamp(value), 5) for key, value in traits.items()}
     avatar["schema"] = "personality-v1"
     result["avatar"] = avatar
-    return result
+    return apply_autonomy(payload, result)
