@@ -1,0 +1,116 @@
+name: Build Galaxy AI Fold7 v27.0 AI Avatar Face APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v27-ai-avatar-face
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v27 living face source contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          renderer = Path('app/src/main/java/pro/galaxyai/fold7/engine/AIAvatarRendererV27.java').read_text()
+          service = Path('app/src/main/java/pro/galaxyai/fold7/GalaxyAIWallpaperService.java').read_text()
+          decision = Path('app/src/main/java/pro/galaxyai/fold7/ai/SceneDecision.java').read_text()
+          personality = Path('aidi_gateway/personality.py').read_text()
+          gradle = Path('app/build.gradle').read_text()
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+          for token in ['calm', 'focused', 'thinking', 'happy', 'sleep', 'blink', 'gazeX', 'drawEyes', 'drawMouth']:
+              assert token in renderer, token
+          assert 'AIAvatarRendererV27' in service
+          assert 'avatar.update' in service
+          assert 'w * 0.82f' in service
+          assert 'avatar.optString("emotion"' in decision
+          assert 'personality-v2' in personality
+          assert 'avatar["emotion"]' in personality
+          assert "versionCode 270" in gradle
+          assert "versionName '27.0'" in gradle
+          assert 'Galaxy AI Fold7 v27' in manifest
+          PY
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Verify AIDI v27 emotion integration
+        env:
+          PYTHONPATH: aidi_gateway
+          AIDI_GATEWAY_HOST: 127.0.0.1
+          AIDI_GATEWAY_PORT: '8772'
+          AIDI_QDRANT_URL: ''
+          AIDI_OLLAMA_URL: http://127.0.0.1:9/api/chat
+          AIDI_CLOUD_ENABLED: '0'
+        run: |
+          python3 -m py_compile aidi_gateway/*.py
+          python3 aidi_gateway/server.py >/tmp/aidi-v27.log 2>&1 &
+          PID=$!
+          trap 'kill $PID || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8772/health >/tmp/aidi-v27-health.json; then break; fi
+            sleep 0.2
+          done
+          curl -fsS -o /tmp/aidi-v27-response.json \
+            -X POST http://127.0.0.1:8772/api/v1/scene/analyze \
+            -H 'Content-Type: application/json' \
+            -H 'X-AIDI-Protocol: scene-v1' \
+            -H 'X-AIDI-Request-Id: ci-v27-face-1' \
+            -d '{"device":"GalaxyFold7-ci","app_version":"27.0","request_id":"ci-v27-face-1","state":{"battery":88,"charging":true,"fold_state":"cover","hour":19,"motion_level":0.16},"profile":{"schema":"profile-v2","samples":16},"context":{"schema":"context-v1","light":"normal","confidence":0.8,"source":"ci","raw_media":false}}'
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          body = json.loads(Path('/tmp/aidi-v27-response.json').read_text())
+          assert body['request_id'] == 'ci-v27-face-1'
+          avatar = body['avatar']
+          assert avatar['schema'] == 'personality-v2'
+          assert avatar['emotion'] in {'calm', 'focused', 'thinking', 'happy', 'sleep'}
+          assert body['autonomy']['raw_media'] is False
+          assert body['provenance']['schema'] == 'provenance-v1'
+          PY
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v27.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify AI Avatar Face APK metadata, permissions and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v27.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v27.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='270'"
+          echo "$BADGING" | grep -q "versionName='27.0'"
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Fold7_LiveWallpaper_v27.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v27.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v27.0.apk | tee Galaxy_AI_Fold7_LiveWallpaper_v27.0.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v27.0
+          path: |
+            Galaxy_AI_Fold7_LiveWallpaper_v27.0.apk
+            Galaxy_AI_Fold7_LiveWallpaper_v27.0.sha256
+          if-no-files-found: error
+          retention-days: 30
