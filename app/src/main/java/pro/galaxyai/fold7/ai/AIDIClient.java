@@ -1,5 +1,7 @@
 package pro.galaxyai.fold7.ai;
 
+import android.content.Context;
+
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -15,6 +17,7 @@ public final class AIDIClient {
     private final AtomicBoolean requestInFlight = new AtomicBoolean(false);
     private final LocalFallbackAI fallbackAI = new LocalFallbackAI();
     private final AIDIGatewayTransport transport;
+    private final AIProfileMemory profileMemory;
 
     private volatile SceneDecision decision = SceneDecision.neutral("bootstrap");
     private volatile long nextRefreshAtMs = 0L;
@@ -24,12 +27,21 @@ public final class AIDIClient {
     private volatile long lastGatewaySuccessAtMs = 0L;
 
     public AIDIClient() {
-        this(new HttpAIDIGatewayTransport());
+        this(new HttpAIDIGatewayTransport(), null);
+    }
+
+    public AIDIClient(Context context) {
+        this(new HttpAIDIGatewayTransport(), new AIProfileMemory(context));
     }
 
     public AIDIClient(AIDIGatewayTransport transport) {
+        this(transport, null);
+    }
+
+    AIDIClient(AIDIGatewayTransport transport, AIProfileMemory profileMemory) {
         if (transport == null) throw new IllegalArgumentException("transport == null");
         this.transport = transport;
+        this.profileMemory = profileMemory;
     }
 
     public SceneDecision getDecision() {
@@ -69,20 +81,26 @@ public final class AIDIClient {
             @Override
             public void run() {
                 long startedAt = System.currentTimeMillis();
+                AIState requestState = state;
+                if (profileMemory != null) {
+                    requestState = state.withProfile(profileMemory.snapshot());
+                }
                 try {
-                    SceneDecision remote = transport.request(state);
+                    SceneDecision remote = transport.request(requestState);
                     decision = remote;
                     decisionSource = "aidi_gateway";
                     lastGatewayError = "";
                     lastGatewayLatencyMs = Math.max(0L, System.currentTimeMillis() - startedAt);
                     lastGatewaySuccessAtMs = System.currentTimeMillis();
+                    if (profileMemory != null) profileMemory.record(remote, true);
                     nextRefreshAtMs = System.currentTimeMillis() + clampRemoteTtl(remote.ttlSeconds);
                 } catch (Exception error) {
-                    SceneDecision local = fallbackAI.decide(state);
+                    SceneDecision local = fallbackAI.decide(requestState);
                     decision = local;
                     decisionSource = "local_fallback";
                     lastGatewayError = error.getClass().getSimpleName();
                     lastGatewayLatencyMs = Math.max(0L, System.currentTimeMillis() - startedAt);
+                    if (profileMemory != null) profileMemory.record(local, false);
                     nextRefreshAtMs = System.currentTimeMillis() + fallbackRetryDelay(local.ttlSeconds);
                 } finally {
                     requestInFlight.set(false);
