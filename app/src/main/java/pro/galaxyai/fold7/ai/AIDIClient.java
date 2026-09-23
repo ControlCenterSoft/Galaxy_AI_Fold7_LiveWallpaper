@@ -18,6 +18,7 @@ public final class AIDIClient {
     private final LocalFallbackAI fallbackAI = new LocalFallbackAI();
     private final AIDIGatewayTransport transport;
     private final AIProfileMemory profileMemory;
+    private final AIPersonalizationProfileV30 personalizationProfile;
 
     private volatile SceneDecision decision = SceneDecision.neutral("bootstrap");
     private volatile long nextRefreshAtMs = 0L;
@@ -27,21 +28,28 @@ public final class AIDIClient {
     private volatile long lastGatewaySuccessAtMs = 0L;
 
     public AIDIClient() {
-        this(new HttpAIDIGatewayTransport(), null);
+        this(new HttpAIDIGatewayTransport(), null, null);
     }
 
     public AIDIClient(Context context) {
-        this(new HttpAIDIGatewayTransport(), new AIProfileMemory(context));
+        this(new HttpAIDIGatewayTransport(), new AIProfileMemory(context),
+                new AIPersonalizationProfileV30(context));
     }
 
     public AIDIClient(AIDIGatewayTransport transport) {
-        this(transport, null);
+        this(transport, null, null);
     }
 
     AIDIClient(AIDIGatewayTransport transport, AIProfileMemory profileMemory) {
+        this(transport, profileMemory, null);
+    }
+
+    AIDIClient(AIDIGatewayTransport transport, AIProfileMemory profileMemory,
+               AIPersonalizationProfileV30 personalizationProfile) {
         if (transport == null) throw new IllegalArgumentException("transport == null");
         this.transport = transport;
         this.profileMemory = profileMemory;
+        this.personalizationProfile = personalizationProfile;
     }
 
     public SceneDecision getDecision() {
@@ -64,10 +72,6 @@ public final class AIDIClient {
         return lastGatewaySuccessAtMs;
     }
 
-    /**
-     * Lets the renderer avoid collecting battery/display state on every frame.
-     * requestIfNeeded() performs the same check again to keep the transition race-safe.
-     */
     public boolean needsRefresh() {
         return System.currentTimeMillis() >= nextRefreshAtMs && !requestInFlight.get();
     }
@@ -83,7 +87,10 @@ public final class AIDIClient {
                 long startedAt = System.currentTimeMillis();
                 AIState requestState = state;
                 if (profileMemory != null) {
-                    requestState = state.withProfile(profileMemory.snapshot());
+                    requestState = requestState.withProfile(profileMemory.snapshot());
+                }
+                if (personalizationProfile != null) {
+                    requestState = requestState.withPersonalization(personalizationProfile.snapshot());
                 }
                 try {
                     SceneDecision remote = transport.request(requestState);
