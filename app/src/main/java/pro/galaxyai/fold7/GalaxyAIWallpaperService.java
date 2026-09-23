@@ -68,6 +68,8 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private final LivingAvatarMotionV40 livingMotion = new LivingAvatarMotionV40();
         private final SpeechFaceSyncV41 speechFace = new SpeechFaceSyncV41();
         private final AutonomousGestureV42 autonomousGesture = new AutonomousGestureV42();
+        private final AttentionGazeControllerV46 coordinationGaze = new AttentionGazeControllerV46();
+        private final HeadEyeCoordinationV49 headEye = new HeadEyeCoordinationV49();
         private final PortraitPresenceControllerV32 portraitPresence = new PortraitPresenceControllerV32();
         private final AvatarStyleControllerV28 avatarStyle =
                 new AvatarStyleControllerV28(GalaxyAIWallpaperService.this);
@@ -134,6 +136,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 boolean pressed = action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE;
                 livingMotion.onTouch(nx, ny, pressed);
                 avatar.onTouch(nx, ny, pressed);
+                coordinationGaze.onTouch(nx, ny, pressed);
             }
             super.onTouchEvent(event);
         }
@@ -193,6 +196,13 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 universe.update(deltaSeconds, main);
                 personality.update(deltaSeconds);
                 avatar.update(decision, deltaSeconds);
+                coordinationGaze.update(decision, deltaSeconds);
+                headEye.update(
+                        decision,
+                        coordinationGaze.getGazeX(),
+                        coordinationGaze.getGazeY(),
+                        deltaSeconds
+                );
                 cinematicDepth.update(decision, deltaSeconds);
                 renderQuality.update(decision, deltaSeconds, main);
                 livingMotion.update(decision, deltaSeconds, main, fold.getProgress());
@@ -235,6 +245,15 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 galaxy.draw(canvas, w, h, main);
 
                 canvas.save();
+                canvas.translate(
+                        headEye.getFollowX() * w * 0.020f,
+                        headEye.getFollowY() * h * 0.011f
+                );
+                canvas.rotate(
+                        headEye.getRoll() * 57.29578f,
+                        w * 0.535f,
+                        h * 0.355f
+                );
                 livingMotion.applyPortraitTransform(canvas, w, h);
                 autonomousGesture.applyGestureTransform(canvas, w, h);
                 cinematicDepth.drawBehind(canvas, w, h, main);
@@ -246,12 +265,14 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                         + w * (universe.getAvatarHorizontalBias() + personality.getHorizontalDrift()) * 0.72f
                         + w * portraitPresence.getHorizontalShift()
                         + livingMotion.getPixelOffsetX(w)
-                        + autonomousGesture.getPixelOffsetX(w);
+                        + autonomousGesture.getPixelOffsetX(w)
+                        + headEye.getFollowX() * w * 0.020f;
                 float avatarY = h * (main ? 0.405f : 0.385f)
                         + h * (universe.getAvatarVerticalBias() + personality.getVerticalDrift()) * 0.55f
                         + h * portraitPresence.getVerticalShift()
                         + livingMotion.getPixelOffsetY(h)
-                        + autonomousGesture.getPixelOffsetY(h);
+                        + autonomousGesture.getPixelOffsetY(h)
+                        + headEye.getFollowY() * h * 0.011f;
                 float personalScale = 0.96f + personal.expressionIntensity * 0.12f;
                 float baseAvatarSize = main
                         ? Math.min(w, h) * 0.84f
