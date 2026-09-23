@@ -16,7 +16,11 @@ public final class AIDIConfig {
     public static final long MIN_REFRESH_MS = 60_000L;
     public static final long DEFAULT_REFRESH_MS = 900_000L;
     public static final long MAX_REFRESH_MS = 3_600_000L;
-    public static final long FAILURE_BACKOFF_MS = 120_000L;
+
+    // Offline mode retries the Gateway progressively while LocalFallbackAI keeps
+    // the renderer fully autonomous. Backoff is capped so recovery is automatic.
+    public static final long FAILURE_BACKOFF_BASE_MS = 60_000L;
+    public static final long FAILURE_BACKOFF_MAX_MS = 900_000L;
 
     private AIDIConfig() {
     }

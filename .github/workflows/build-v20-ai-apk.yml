@@ -18,11 +18,17 @@ jobs:
           from pathlib import Path
           state = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIState.java').read_text()
           client = Path('app/src/main/java/pro/galaxyai/fold7/ai/HttpAIDIGatewayTransport.java').read_text()
+          runtime = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIDIClient.java').read_text()
+          fallback = Path('app/src/main/java/pro/galaxyai/fold7/ai/LocalFallbackAI.java').read_text()
           service = Path('app/src/main/java/pro/galaxyai/fold7/GalaxyAIWallpaperService.java').read_text()
           for token in ['captured_at_ms', 'state_sequence', 'display', 'width_px', 'height_px']:
               assert token in state, token
           for token in ['X-AIDI-Request-Id', 'request_id', 'X-AIDI-Protocol']:
               assert token in client, token
+          for token in ['local_fallback', 'GatewayRecoveryPolicy', 'isInFallbackMode', 'fallbackSinceAtMs']:
+              assert token in runtime, token
+          for token in ['deep_black', 'deep_nebula', 'energy_core', 'living_continuum', 'compact_continuum']:
+              assert token in fallback, token
           assert 'aidi.needsRefresh()' in service
           assert 'stateCollector.capture(' in service
           PY
@@ -66,6 +72,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
+
+      - name: Test LocalFallbackAI and renderer stability
+        run: gradle --no-daemon :app:testDebugUnitTest
 
       - name: Build v20.0
         run: gradle --no-daemon :app:assembleDebug
