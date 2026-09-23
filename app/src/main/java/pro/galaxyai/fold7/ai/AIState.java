@@ -90,11 +90,21 @@ public final class AIState {
         state.put("motion_level", motionLevel);
         state.put("display", display);
 
+        JSONObject communication = new JSONObject();
+        communication.put("language", RussianAIPersonalityV33.LANGUAGE);
+        communication.put("locale", RussianAIPersonalityV33.LOCALE_TAG);
+        communication.put("culture", RussianAIPersonalityV33.CULTURE);
+        communication.put("response_style", RussianAIPersonalityV33.RESPONSE_STYLE);
+
         JSONObject root = new JSONObject();
         root.put("device", "GalaxyFold7");
         root.put("app_version", BuildConfig.VERSION_NAME);
         root.put("captured_at_ms", capturedAtMs);
         root.put("state_sequence", sequence);
+        root.put("locale", RussianAIPersonalityV33.LOCALE_TAG);
+        root.put("culture", RussianAIPersonalityV33.CULTURE);
+        root.put("response_style", RussianAIPersonalityV33.RESPONSE_STYLE);
+        root.put("communication", communication);
         root.put("state", state);
         if (profile != null) root.put("profile", profile.toJson());
         if (context != null) root.put("context", context.toJson());
