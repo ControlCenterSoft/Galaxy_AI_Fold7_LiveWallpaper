@@ -1,6 +1,5 @@
 package pro.galaxyai.fold7;
 
-import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.os.Handler;
 import android.service.wallpaper.WallpaperService;
@@ -12,19 +11,19 @@ public class GalaxyAIWallpaperService extends WallpaperService {
 
     @Override
     public Engine onCreateEngine() {
-        return new V5Engine();
+        return new V6Engine();
     }
 
-    private class V5Engine extends Engine {
+    private class V6Engine extends Engine {
         private final Handler handler = new Handler();
-        private final AssetManagerV5 assets = new AssetManagerV5(GalaxyAIWallpaperService.this);
-        private final LayerRendererV5 layers = new LayerRendererV5();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
-        private final GalaxySceneRenderer galaxy = new GalaxySceneRenderer();
-        private final AIAvatarRenderer avatar = new AIAvatarRenderer();
-        private final NeuralMeshEngine mesh = new NeuralMeshEngine();
         private final FoldTransitionController fold = new FoldTransitionController();
+        private final GalaxySceneRendererV6 galaxy = new GalaxySceneRendererV6();
+        private final AIAvatarRendererV6 avatar = new AIAvatarRendererV6();
+        private final ParticleEngineV6 particles = new ParticleEngineV6();
+        private final GlowEngineV6 glow = new GlowEngineV6();
+        private final HologramEngineV6 hologram = new HologramEngineV6();
         private boolean visible;
 
         private final Runnable loop = new Runnable() {
@@ -57,13 +56,10 @@ public class GalaxyAIWallpaperService extends WallpaperService {
             canvas.scale(camera.getZoom(), camera.getZoom(), w / 2f, h / 2f);
 
             galaxy.draw(canvas, w, h, mode == FoldProfileManager.Mode.MAIN);
-            avatar.draw(canvas, mode == FoldProfileManager.Mode.MAIN ? w * 0.72f : w * 0.65f, h * 0.45f, w * 0.22f);
-            mesh.draw(canvas, w * 0.65f, h * 0.45f, w * 0.35f);
-
-            Bitmap avatarAsset = assets.loadDrawable("ai_avatar_v5");
-            if (avatarAsset != null) {
-                layers.draw(canvas, avatarAsset, w * 0.65f, h * 0.45f, 0.55f);
-            }
+            avatar.draw(canvas, w * 0.65f, h * 0.45f);
+            hologram.draw(canvas, w, h);
+            glow.draw(canvas, w, h);
+            particles.draw(canvas, w, h);
 
             canvas.restore();
             holder.unlockCanvasAndPost(canvas);
