@@ -10,10 +10,12 @@ import java.util.Calendar;
 public final class AIStateCollector {
     private final Context context;
     private final BatteryManager batteryManager;
+    private final AIProfileStore profileStore;
 
-    public AIStateCollector(Context context) {
+    public AIStateCollector(Context context, AIProfileStore profileStore) {
         this.context = context.getApplicationContext();
         this.batteryManager = (BatteryManager) this.context.getSystemService(Context.BATTERY_SERVICE);
+        this.profileStore = profileStore;
     }
 
     public AIState capture(boolean mainDisplay, float motionLevel) {
@@ -32,6 +34,7 @@ public final class AIStateCollector {
         }
 
         int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-        return new AIState(battery, charging, mainDisplay, hour, motionLevel);
+        AIProfile profile = profileStore == null ? AIProfile.empty() : profileStore.snapshot();
+        return new AIState(battery, charging, mainDisplay, hour, motionLevel, profile);
     }
 }
