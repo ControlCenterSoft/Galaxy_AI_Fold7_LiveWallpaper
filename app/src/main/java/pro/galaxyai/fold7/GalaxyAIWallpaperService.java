@@ -9,6 +9,7 @@ import android.view.SurfaceHolder;
 import java.security.SecureRandom;
 
 import pro.galaxyai.fold7.ai.AIDIClient;
+import pro.galaxyai.fold7.ai.AIPersonalizationProfileV30;
 import pro.galaxyai.fold7.ai.AIState;
 import pro.galaxyai.fold7.ai.AIStateCollector;
 import pro.galaxyai.fold7.ai.AmbientContextCollector;
@@ -23,7 +24,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
     @Override
     public Engine onCreateEngine() {
         UniverseIdentity identity = loadUniverseIdentity();
-        return new V29Engine(identity.seed, identity.evolutionEpoch);
+        return new V30Engine(identity.seed, identity.evolutionEpoch);
     }
 
     private UniverseIdentity loadUniverseIdentity() {
@@ -52,7 +53,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         }
     }
 
-    private class V29Engine extends Engine {
+    private class V30Engine extends Engine {
         private final Handler handler = new Handler();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
@@ -63,6 +64,8 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 new AvatarStyleControllerV28(GalaxyAIWallpaperService.this);
         private final AmbientPersonalityControllerV29 ambientPersonality =
                 new AmbientPersonalityControllerV29(GalaxyAIWallpaperService.this);
+        private final AIPersonalizationProfileV30 personalization =
+                new AIPersonalizationProfileV30(GalaxyAIWallpaperService.this);
         private final ParticleEngineV6 particles = new ParticleEngineV6();
         private final GlowEngineV6 glow = new GlowEngineV6();
         private final HologramEngineV6 hologram = new HologramEngineV6();
@@ -77,7 +80,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private boolean visible;
         private long frameDelayMillis = 37L;
 
-        V29Engine(long universeSeed, long evolutionEpoch) {
+        V30Engine(long universeSeed, long evolutionEpoch) {
             universe = new MemoryAwareUniverseControllerV21(universeSeed, evolutionEpoch);
         }
 
@@ -146,11 +149,13 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                     aidi.requestIfNeeded(state);
                 }
 
+                AIPersonalizationProfileV30.Snapshot personal = personalization.snapshot();
                 universe.setDecision(aidi.getDecision());
                 personality.setDecision(aidi.getDecision());
                 universe.update(deltaSeconds, main);
                 personality.update(deltaSeconds);
                 avatar.update(aidi.getDecision(), avatarStyle.getStyle(), deltaSeconds, main);
+                ambientPersonality.applyVoiceManner(personal.voicePitch, personal.voiceRate);
                 ambientPersonality.maybeReact(aidi.getDecision());
                 frameDelayMillis = universe.getFrameDelayMillis(main);
 
@@ -168,13 +173,16 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                         + w * (universe.getAvatarHorizontalBias() + personality.getHorizontalDrift());
                 float avatarY = h * (0.43f + universe.getAvatarVerticalBias()
                         + personality.getVerticalDrift());
+                float personalScale = 0.90f + personal.expressionIntensity * 0.16f;
                 float baseAvatarSize = main
                         ? Math.min(w, h) * 0.72f
                         : w * 0.82f;
-                float avatarSize = baseAvatarSize * personality.getAvatarScale();
+                float avatarSize = baseAvatarSize * personality.getAvatarScale() * personalScale;
 
                 AvatarStyleV28 style = avatarStyle.getStyle();
-                float styleGlow = 0.88f + style.hologramStrength * 0.20f;
+                float eyeGlow = 0.82f + personal.eyeGlow * 0.28f;
+                float warmthHologram = 1.08f - personal.appearanceWarmth * 0.22f;
+                float styleGlow = (0.88f + style.hologramStrength * 0.20f) * eyeGlow;
                 glow.draw(
                         canvas,
                         avatarX,
@@ -193,6 +201,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                             motion.getPulse() * universe.getPulseMultiplier()
                                     * personality.getHologramMultiplier()
                                     * style.hologramStrength
+                                    * warmthHologram
                     );
                 }
                 avatar.draw(canvas, avatarX, avatarY, avatarSize);
@@ -202,6 +211,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                         avatarY,
                         avatarSize * 1.08f * universe.getParticleMultiplier()
                                 * personality.getAuraParticleMultiplier()
+                                * (0.88f + personal.expressionIntensity * 0.20f)
                 );
 
                 canvas.restore();
