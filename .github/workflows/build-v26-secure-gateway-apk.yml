@@ -1,0 +1,146 @@
+name: Build Galaxy AI Fold7 v26.0 Secure Gateway APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v26-secure-gateway-boundary
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify secure endpoint boundary sources
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          policy = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIDIEndpointPolicy.java').read_text()
+          transport = Path('app/src/main/java/pro/galaxyai/fold7/ai/HttpAIDIGatewayTransport.java').read_text()
+          config = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIDIConfig.java').read_text()
+          gradle = Path('app/build.gradle').read_text()
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+          assert 'AIDIEndpointPolicy.requireAllowed' in transport
+          for token in ['https', '192', '168', '.hm.dm', '/api/v1/scene/analyze']:
+              assert token in policy, token
+          assert '192.168.10.214:8088' in config
+          assert "versionCode 260" in gradle
+          assert "versionName '26.0'" in gradle
+          assert 'Galaxy AI Fold7 v26' in manifest
+          PY
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Unit test AIDI endpoint policy
+        run: |
+          mkdir -p /tmp/aidi-policy
+          cat >/tmp/AIDIEndpointPolicyTest.java <<'JAVA'
+          package pro.galaxyai.fold7.ai;
+          public final class AIDIEndpointPolicyTest {
+              private static void ok(String endpoint) {
+                  String out = AIDIEndpointPolicy.requireAllowed(endpoint);
+                  if (!endpoint.equals(out)) throw new AssertionError(out);
+              }
+              private static void bad(String endpoint) {
+                  try {
+                      AIDIEndpointPolicy.requireAllowed(endpoint);
+                      throw new AssertionError("accepted: " + endpoint);
+                  } catch (IllegalArgumentException expected) {
+                      // expected
+                  }
+              }
+              public static void main(String[] args) {
+                  ok("https://gateway.example.com/api/v1/scene/analyze");
+                  ok("http://192.168.10.214:8088/api/v1/scene/analyze");
+                  ok("http://10.1.2.3:8088/api/v1/scene/analyze");
+                  ok("http://172.16.4.5/api/v1/scene/analyze");
+                  ok("http://aidi-gateway.hm.dm:8088/api/v1/scene/analyze");
+                  ok("http://localhost:8088/api/v1/scene/analyze");
+                  bad("http://example.com/api/v1/scene/analyze");
+                  bad("http://8.8.8.8/api/v1/scene/analyze");
+                  bad("ftp://192.168.10.214/api/v1/scene/analyze");
+                  bad("http://192.168.10.214/other");
+                  bad("http://user@192.168.10.214/api/v1/scene/analyze");
+                  bad("http://192.168.10.214/api/v1/scene/analyze?debug=1");
+              }
+          }
+          JAVA
+          javac -d /tmp/aidi-policy \
+            app/src/main/java/pro/galaxyai/fold7/ai/AIDIEndpointPolicy.java \
+            /tmp/AIDIEndpointPolicyTest.java
+          java -cp /tmp/aidi-policy pro.galaxyai.fold7.ai.AIDIEndpointPolicyTest
+
+      - name: Verify AIDI autonomous gateway remains healthy
+        env:
+          PYTHONPATH: aidi_gateway
+          AIDI_GATEWAY_HOST: 127.0.0.1
+          AIDI_GATEWAY_PORT: '8771'
+          AIDI_QDRANT_URL: ''
+          AIDI_OLLAMA_URL: http://127.0.0.1:9/api/chat
+          AIDI_CLOUD_ENABLED: '0'
+        run: |
+          python3 -m py_compile aidi_gateway/*.py
+          python3 aidi_gateway/server.py >/tmp/aidi-v26.log 2>&1 &
+          PID=$!
+          trap 'kill $PID || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8771/health >/tmp/aidi-v26-health.json; then break; fi
+            sleep 0.2
+          done
+          curl -fsS -o /tmp/aidi-v26-response.json \
+            -X POST http://127.0.0.1:8771/api/v1/scene/analyze \
+            -H 'Content-Type: application/json' \
+            -H 'X-AIDI-Protocol: scene-v1' \
+            -H 'X-AIDI-Request-Id: ci-v26-secure-1' \
+            -d '{"device":"GalaxyFold7-ci","app_version":"26.0","request_id":"ci-v26-secure-1","state":{"battery":79,"charging":false,"fold_state":"main","hour":18,"motion_level":0.15},"profile":{"schema":"profile-v2","samples":16},"context":{"schema":"context-v1","light":"normal","confidence":0.8,"source":"ci","raw_media":false}}'
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          body = json.loads(Path('/tmp/aidi-v26-response.json').read_text())
+          assert body['request_id'] == 'ci-v26-secure-1'
+          assert body['autonomy']['schema'] == 'autonomy-v1'
+          assert body['autonomy']['raw_media'] is False
+          assert body['provenance']['schema'] == 'provenance-v1'
+          PY
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v26.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify Secure Gateway APK metadata, permissions and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v26.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v26.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='260'"
+          echo "$BADGING" | grep -q "versionName='26.0'"
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Fold7_LiveWallpaper_v26.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v26.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v26.0.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v26.0
+          path: Galaxy_AI_Fold7_LiveWallpaper_v26.0.apk
+          if-no-files-found: error
+          retention-days: 30
