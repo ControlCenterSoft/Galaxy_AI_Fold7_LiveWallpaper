@@ -3,6 +3,7 @@ package pro.galaxyai.fold7.engine;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
 
 import pro.galaxyai.fold7.ai.RussianAIPersonalityV33;
 import pro.galaxyai.fold7.ai.SceneDecision;
@@ -13,6 +14,8 @@ import pro.galaxyai.fold7.ai.SceneDecision;
  * Uses Android TextToSpeech only. No microphone, speech recognition or raw audio capture is used.
  * Voice is opt-in and defaults to disabled. All timing and enablement state are stored locally.
  * Since v33 the communication language on the phone is Russian (ru-RU) by default.
+ * Since v41 a local synthetic speech-activity envelope is exposed for mouth animation; it is
+ * derived only from TTS lifecycle callbacks and local time, never from microphone/audio samples.
  */
 public final class AmbientPersonalityControllerV29 implements TextToSpeech.OnInitListener {
     public static final String PREFS = "ambient_personality_v29";
@@ -30,10 +33,34 @@ public final class AmbientPersonalityControllerV29 implements TextToSpeech.OnIni
     private long lastSpokenAt;
     private float desiredPitch = 1.02f;
     private float desiredRate = 0.92f;
+    private volatile boolean speaking;
+    private volatile long speechStartedNanos;
 
     public AmbientPersonalityControllerV29(Context context) {
         prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         tts = new TextToSpeech(context.getApplicationContext(), this);
+        tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+            @Override
+            public void onStart(String utteranceId) {
+                speaking = true;
+                speechStartedNanos = System.nanoTime();
+            }
+
+            @Override
+            public void onDone(String utteranceId) {
+                speaking = false;
+            }
+
+            @Override
+            public void onError(String utteranceId) {
+                speaking = false;
+            }
+
+            @Override
+            public void onStop(String utteranceId, boolean interrupted) {
+                speaking = false;
+            }
+        });
     }
 
     @Override
@@ -72,9 +99,27 @@ public final class AmbientPersonalityControllerV29 implements TextToSpeech.OnIni
         String phrase = RussianAIPersonalityV33.phraseFor(emotion, getReactionLevel());
         if (phrase.isEmpty()) return;
 
-        tts.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "galaxy-ai-v33-" + now);
+        tts.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "galaxy-ai-v41-" + now);
         lastEmotion = emotion;
         lastSpokenAt = now;
+    }
+
+    /** True only while Android TTS reports an active utterance. */
+    public boolean isSpeaking() {
+        return speaking;
+    }
+
+    /**
+     * Returns a bounded local pseudo-viseme envelope in [0..1]. It is intentionally
+     * independent of captured audio; Russian TTS lifecycle + local clock are sufficient.
+     */
+    public float getSpeechActivity() {
+        if (!speaking) return 0f;
+        float seconds = (System.nanoTime() - speechStartedNanos) / 1_000_000_000f;
+        float syllable = 0.5f + 0.5f * (float) Math.sin(seconds * 15.7f);
+        float consonant = 0.5f + 0.5f * (float) Math.sin(seconds * 27.4f + 0.8f);
+        float phrase = 0.5f + 0.5f * (float) Math.sin(seconds * 5.2f + 0.3f);
+        return clamp(0.12f + syllable * 0.50f + consonant * 0.23f + phrase * 0.15f, 0f, 1f);
     }
 
     public boolean isVoiceEnabled() {
@@ -86,6 +131,7 @@ public final class AmbientPersonalityControllerV29 implements TextToSpeech.OnIni
     }
 
     public void shutdown() {
+        speaking = false;
         tts.stop();
         tts.shutdown();
     }
