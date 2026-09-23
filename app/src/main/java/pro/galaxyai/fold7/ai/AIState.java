@@ -3,6 +3,8 @@ package pro.galaxyai.fold7.ai;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import pro.galaxyai.fold7.BuildConfig;
+
 /** Immutable snapshot of device context sent to AIDI Gateway. */
 public final class AIState {
     public final int batteryPercent;
@@ -16,24 +18,26 @@ public final class AIState {
     public final long sequence;
     public final AIProfileMemory.ProfileSnapshot profile;
     public final AIContextSignal context;
+    public final AIPersonalizationProfileV30.Snapshot personalization;
 
     public AIState(int batteryPercent, boolean charging, boolean mainDisplay,
                    int hourOfDay, float motionLevel) {
         this(batteryPercent, charging, mainDisplay, hourOfDay, motionLevel,
-                0, 0, System.currentTimeMillis(), 0L, null, null);
+                0, 0, System.currentTimeMillis(), 0L, null, null, null);
     }
 
     public AIState(int batteryPercent, boolean charging, boolean mainDisplay,
                    int hourOfDay, float motionLevel, int displayWidthPx,
                    int displayHeightPx, long capturedAtMs, long sequence) {
         this(batteryPercent, charging, mainDisplay, hourOfDay, motionLevel,
-                displayWidthPx, displayHeightPx, capturedAtMs, sequence, null, null);
+                displayWidthPx, displayHeightPx, capturedAtMs, sequence, null, null, null);
     }
 
     private AIState(int batteryPercent, boolean charging, boolean mainDisplay,
                     int hourOfDay, float motionLevel, int displayWidthPx,
                     int displayHeightPx, long capturedAtMs, long sequence,
-                    AIProfileMemory.ProfileSnapshot profile, AIContextSignal context) {
+                    AIProfileMemory.ProfileSnapshot profile, AIContextSignal context,
+                    AIPersonalizationProfileV30.Snapshot personalization) {
         this.batteryPercent = Math.max(0, Math.min(100, batteryPercent));
         this.charging = charging;
         this.mainDisplay = mainDisplay;
@@ -45,13 +49,14 @@ public final class AIState {
         this.sequence = Math.max(0L, sequence);
         this.profile = profile;
         this.context = context;
+        this.personalization = personalization;
     }
 
     public AIState withProfile(AIProfileMemory.ProfileSnapshot profile) {
         return new AIState(
                 batteryPercent, charging, mainDisplay, hourOfDay, motionLevel,
                 displayWidthPx, displayHeightPx, capturedAtMs, sequence,
-                profile, context
+                profile, context, personalization
         );
     }
 
@@ -59,7 +64,15 @@ public final class AIState {
         return new AIState(
                 batteryPercent, charging, mainDisplay, hourOfDay, motionLevel,
                 displayWidthPx, displayHeightPx, capturedAtMs, sequence,
-                profile, context
+                profile, context, personalization
+        );
+    }
+
+    public AIState withPersonalization(AIPersonalizationProfileV30.Snapshot personalization) {
+        return new AIState(
+                batteryPercent, charging, mainDisplay, hourOfDay, motionLevel,
+                displayWidthPx, displayHeightPx, capturedAtMs, sequence,
+                profile, context, personalization
         );
     }
 
@@ -79,12 +92,13 @@ public final class AIState {
 
         JSONObject root = new JSONObject();
         root.put("device", "GalaxyFold7");
-        root.put("app_version", "22.0");
+        root.put("app_version", BuildConfig.VERSION_NAME);
         root.put("captured_at_ms", capturedAtMs);
         root.put("state_sequence", sequence);
         root.put("state", state);
         if (profile != null) root.put("profile", profile.toJson());
         if (context != null) root.put("context", context.toJson());
+        if (personalization != null) root.put("personalization", personalization.toGatewayJson());
         return root;
     }
 }
