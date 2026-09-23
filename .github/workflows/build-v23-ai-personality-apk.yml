@@ -1,0 +1,154 @@
+name: Build Galaxy AI Fold7 v23.0 AI Personality APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v23-ai-avatar-personality
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v23 personality sources
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+          decision = Path('app/src/main/java/pro/galaxyai/fold7/ai/SceneDecision.java').read_text()
+          memory = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIProfileMemory.java').read_text()
+          controller = Path('app/src/main/java/pro/galaxyai/fold7/engine/AIPersonalityControllerV23.java').read_text()
+          service = Path('app/src/main/java/pro/galaxyai/fold7/GalaxyAIWallpaperService.java').read_text()
+          personality = Path('aidi_gateway/personality.py').read_text()
+          context = Path('aidi_gateway/context.py').read_text()
+          for token in ['avatarPresence', 'serenity', 'curiosity', 'focus']:
+              assert token in decision, token
+          assert 'Backward-compatible constructor' in decision
+          assert 'profile-v2' in memory
+          for token in ['averagePresence', 'averageSerenity', 'averageCuriosity', 'averageFocus']:
+              assert token in memory, token
+          assert 'AIPersonalityControllerV23' in service
+          assert 'personality.getAvatarScale()' in service
+          assert 'personality.getGlowMultiplier()' in service
+          assert 'personality-v1' in personality
+          assert 'apply_personality' in context
+          for forbidden in ['android.permission.CAMERA', 'android.permission.RECORD_AUDIO',
+                            'ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION']:
+              assert forbidden not in manifest, forbidden
+          PY
+
+      - name: Smoke test bounded avatar personality policy
+        env:
+          PYTHONPATH: aidi_gateway
+        run: |
+          python3 -m py_compile aidi_gateway/server.py aidi_gateway/memory.py aidi_gateway/context.py aidi_gateway/personality.py
+          python3 - <<'PY'
+          from personality import apply_personality, defaults_for_state
+          base = {
+              'scene': {'name': 'living_continuum', 'energy': 0.5,
+                        'particle_multiplier': 1.0, 'pulse_multiplier': 1.0,
+                        'scene_scale': 1.0, 'avatar_x_bias': 0.0, 'avatar_y_bias': 0.0},
+              'avatar': {'state': 'aware'},
+              'ttl': 60,
+          }
+          payload = {
+              'profile': {
+                  'schema': 'profile-v2', 'samples': 12,
+                  'personality': {'presence': 0.91, 'serenity': 0.63,
+                                  'curiosity': 0.88, 'focus': 0.79}
+              }
+          }
+          out = apply_personality(payload, base)
+          assert out['avatar']['schema'] == 'personality-v1'
+          traits = out['avatar']['traits']
+          assert set(traits) == {'presence', 'serenity', 'curiosity', 'focus'}
+          for value in traits.values():
+              assert 0.0 <= float(value) <= 1.0
+          defaults = defaults_for_state('aware')
+          assert traits['presence'] > defaults['presence']
+          assert traits['curiosity'] > defaults['curiosity']
+          PY
+
+      - name: Integration test AIDI Gateway v23 personality contract
+        env:
+          PYTHONPATH: aidi_gateway
+          AIDI_GATEWAY_HOST: 127.0.0.1
+          AIDI_GATEWAY_PORT: '8768'
+          AIDI_QDRANT_URL: ''
+          AIDI_OLLAMA_URL: http://127.0.0.1:9/api/chat
+          AIDI_LLM_CACHE_SECONDS: '900'
+        run: |
+          python3 aidi_gateway/server.py > /tmp/aidi-v23.log 2>&1 &
+          GATEWAY_PID=$!
+          trap 'kill $GATEWAY_PID || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8768/health >/tmp/aidi-v23-health.json; then break; fi
+            sleep 0.2
+          done
+          REQUEST_ID='ci-v23-personality-42'
+          curl -fsS -D /tmp/aidi-v23-headers -o /tmp/aidi-v23-response.json \
+            -X POST http://127.0.0.1:8768/api/v1/scene/analyze \
+            -H 'Content-Type: application/json' \
+            -H 'X-AIDI-Protocol: scene-v1' \
+            -H "X-AIDI-Request-Id: $REQUEST_ID" \
+            -d '{"device":"GalaxyFold7-ci","app_version":"23.0","request_id":"ci-v23-personality-42","captured_at_ms":1770000000000,"state_sequence":42,"state":{"battery":76,"charging":false,"fold_state":"main","hour":20,"motion_level":0.24,"display":{"width_px":2176,"height_px":1812,"orientation":"landscape"}},"profile":{"schema":"profile-v2","samples":12,"average_energy":0.44,"average_particles":0.96,"personality":{"presence":0.91,"serenity":0.63,"curiosity":0.88,"focus":0.79},"last_scene":"living_continuum","last_avatar":"aware","gateway_successes":10,"fallback_count":2},"context":{"schema":"context-v1","light":"normal","semantic_label":"normal_light_environment","confidence":0.72,"source":"android-light-sensor","captured_at_ms":1770000000000,"raw_media":false}}'
+          cat /tmp/aidi-v23-health.json
+          cat /tmp/aidi-v23-response.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          body = json.loads(Path('/tmp/aidi-v23-response.json').read_text())
+          assert body['request_id'] == 'ci-v23-personality-42'
+          assert body['avatar']['schema'] == 'personality-v1'
+          traits = body['avatar']['traits']
+          assert set(traits) == {'presence', 'serenity', 'curiosity', 'focus'}
+          for value in traits.values():
+              assert 0.0 <= float(value) <= 1.0
+          assert body['context']['schema'] == 'context-v1'
+          assert body['context']['raw_media'] is False
+          PY
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v23.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify AI Personality APK metadata, permissions and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v23.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v23.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='230'"
+          echo "$BADGING" | grep -q "versionName='23.0'"
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Fold7_LiveWallpaper_v23.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v23.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v23.0.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v23.0
+          path: Galaxy_AI_Fold7_LiveWallpaper_v23.0.apk
+          if-no-files-found: error
+          retention-days: 30
