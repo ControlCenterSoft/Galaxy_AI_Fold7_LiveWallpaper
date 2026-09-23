@@ -48,7 +48,7 @@ public class MainActivity extends Activity {
                 ScrollView.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText("Galaxy AI Fold7 v41 — Живой AI с русской синхронизацией речи");
+        title.setText("Galaxy AI Fold7 v42 — Автономная живая мимика и жесты");
         title.setTextSize(21f);
         root.addView(title, fullWidth());
 
@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
         root.addView(contextOff, buttonParams());
 
         TextView portraitInfo = new TextView(this);
-        portraitInfo.setText("AI-персонаж движется, реагирует на эмоции AIDI, касания и раскрытие Fold. При русских голосовых реакциях рот теперь мягко синхронизируется с локальным Android TTS: артикуляция строится из событий воспроизведения, без микрофона и анализа аудио. Моргание, микродвижения взгляда, фотореалистичный портрет и адаптивная производительность сохранены.");
+        portraitInfo.setText("AI-персонаж теперь не только постоянно движется, моргает и синхронизирует губы с русским TTS, но и автономно выполняет редкие естественные жесты: кивки, лёгкие наклоны, короткие взгляды в сторону и подтверждающее движение при начале речи. Частота и амплитуда зависят от calm/focused/thinking/happy/sleep и остаются мягкими, чтобы персонаж не выглядел механическим.");
         portraitInfo.setTextSize(14f);
         portraitInfo.setPadding(0, dp(8), 0, dp(10));
         root.addView(portraitInfo, fullWidth());
@@ -137,7 +137,7 @@ public class MainActivity extends Activity {
         root.addView(voiceOff, buttonParams());
 
         TextView privacy = new TextView(this);
-        privacy.setText("Приватность: движение, касания и синхронизация губ обрабатываются только локально в памяти. Для lip-sync используются только события локального TTS и локальный таймер — микрофон, запись звука и анализ аудиопотока не применяются. AIDI получает только разрешённые нечувствительные параметры, локаль ru-RU и стиль общения. Камера, точная геопозиция и исходные медиа не передаются.");
+        privacy.setText("Приватность: движение, жесты, касания и синхронизация губ обрабатываются только локально в памяти. Для lip-sync используются только события локального TTS и локальный таймер; жесты строятся из уже разрешённого AI-состояния и локального генератора. Микрофон, запись звука, камера, точная геопозиция и исходные медиа не используются и не передаются.");
         privacy.setTextSize(13f);
         privacy.setPadding(0, dp(14), 0, dp(18));
         root.addView(privacy, fullWidth());
