@@ -9,7 +9,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
-/** HTTP implementation of the AIDI scene-v1 transport. */
+/** HTTP(S) implementation of the AIDI scene-v1 transport. */
 public final class HttpAIDIGatewayTransport implements AIDIGatewayTransport {
     private final String endpoint;
 
@@ -18,10 +18,7 @@ public final class HttpAIDIGatewayTransport implements AIDIGatewayTransport {
     }
 
     public HttpAIDIGatewayTransport(String endpoint) {
-        if (endpoint == null || endpoint.trim().isEmpty()) {
-            throw new IllegalArgumentException("AIDI endpoint is empty");
-        }
-        this.endpoint = endpoint;
+        this.endpoint = AIDIEndpointPolicy.requireAllowed(endpoint);
     }
 
     @Override
