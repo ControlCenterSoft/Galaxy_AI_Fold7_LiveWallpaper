@@ -1,8 +1,10 @@
 package pro.galaxyai.fold7.ai;
 
 public final class AIDIConfig {
+    // v20 production prototype uses the live LAN/VPN AIDI Gateway directly.
+    // TLS + DNS hardening is tracked for the production security release.
     public static final String DEFAULT_ENDPOINT =
-            "https://aidi-gateway.hm.dm/api/v1/scene/analyze";
+            "http://192.168.10.214:8088/api/v1/scene/analyze";
     public static final String PROTOCOL_VERSION = "scene-v1";
     public static final String CLIENT_NAME = "galaxy-fold7-live-wallpaper";
 
