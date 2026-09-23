@@ -7,6 +7,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from context import apply_context, sanitize_context
 from memory import MemoryStore
 
 HOST = os.environ.get("AIDI_GATEWAY_HOST", "0.0.0.0")
@@ -22,6 +23,7 @@ _pending = set()
 _memory = MemoryStore()
 _stats = {
     "requests": 0,
+    "context_requests": 0,
     "llm_started": 0,
     "llm_success": 0,
     "llm_error": 0,
@@ -76,7 +78,6 @@ def baseline(payload, memory_hint=None):
         name, avatar, energy = "compact_continuum", "calm", 0.38
         particles, pulse, scale = 0.92, 0.96, 0.999
 
-    # Local device memory is only a gentle preference prior. Safety/battery rules always win.
     profile_samples = max(0, int(profile.get("samples", 0) or 0))
     if not low_battery and profile_samples >= 3:
         preferred_energy = clamp(_number(profile.get("average_energy", energy), energy), 0.0, 1.0)
@@ -86,7 +87,6 @@ def baseline(payload, memory_hint=None):
         energy = energy * 0.90 + preferred_energy * 0.10
         particles = particles * 0.90 + preferred_particles * 0.10
 
-    # Similar historical decisions from AIDI/Qdrant provide a second bounded prior.
     remembered_scene = (memory_hint or {}).get("scene") if isinstance(memory_hint, dict) else None
     remembered_scene = remembered_scene if isinstance(remembered_scene, dict) else {}
     memory_score = clamp(_number((memory_hint or {}).get("_memory_score", 0.0), 0.0), 0.0, 1.0)
@@ -105,7 +105,7 @@ def baseline(payload, memory_hint=None):
             _number(remembered_scene.get("scene_scale", scale), scale), 0.97, 1.03
         ) * weight
 
-    return {
+    result = {
         "decision_id": "fast-%d" % int(time.time()),
         "request_id": str(payload.get("request_id", ""))[:160],
         "scene": {
@@ -119,9 +119,10 @@ def baseline(payload, memory_hint=None):
         },
         "avatar": {"state": avatar},
         "ttl": 60,
-        "source": "aidi-fast-path-v21",
+        "source": "aidi-fast-path-v22",
         "memory": _memory_metadata(payload, memory_hint),
     }
+    return apply_context(payload, result, low_battery=low_battery)
 
 
 def normalize(candidate, fallback):
@@ -137,14 +138,11 @@ def normalize(candidate, fallback):
         except Exception:
             return float(default)
 
-    name = str(scene_in.get("name", base_scene["name"]))[:64]
-    avatar_state = str(avatar_in.get("state", fallback["avatar"]["state"]))[:32]
-
     return {
         "decision_id": "llm-%d" % int(time.time()),
         "request_id": fallback.get("request_id", ""),
         "scene": {
-            "name": name,
+            "name": str(scene_in.get("name", base_scene["name"]))[:64],
             "energy": clamp(num("energy", base_scene["energy"]), 0.0, 1.0),
             "particle_multiplier": clamp(num("particle_multiplier", base_scene["particle_multiplier"]), 0.45, 1.8),
             "pulse_multiplier": clamp(num("pulse_multiplier", base_scene["pulse_multiplier"]), 0.6, 1.5),
@@ -152,18 +150,20 @@ def normalize(candidate, fallback):
             "avatar_x_bias": clamp(num("avatar_x_bias", base_scene["avatar_x_bias"]), -0.02, 0.02),
             "avatar_y_bias": clamp(num("avatar_y_bias", base_scene["avatar_y_bias"]), -0.02, 0.02),
         },
-        "avatar": {"state": avatar_state},
+        "avatar": {"state": str(avatar_in.get("state", fallback["avatar"]["state"]))[:32]},
         "ttl": 900,
         "source": "aidi-local-llm:%s" % MODEL,
         "memory": fallback.get("memory", {}),
+        "context": fallback.get("context", {}),
     }
 
 
 def ollama_decision(payload, fallback):
     system = """You are the AIDI scene decision engine for Galaxy AI Fold7 live wallpaper.
 Return JSON only. Choose a calm, battery-aware visual state from device context.
-The request can contain profile and memory_context. Treat them as soft preferences only;
-battery safety and low-motion night behavior have priority.
+The request can contain profile, memory_context and context-v1 semantic environment data.
+Treat memory and context as soft visual preferences only; low-battery safety and low-motion
+night behavior have priority. Never request or infer raw camera/audio/location data.
 Use this exact shape:
 {"scene":{"name":"...","energy":0.0,"particle_multiplier":1.0,"pulse_multiplier":1.0,"scene_scale":1.0,"avatar_x_bias":0.0,"avatar_y_bias":0.0},"avatar":{"state":"calm"}}
 Constraints: energy 0..1, particle_multiplier 0.45..1.8, pulse_multiplier 0.6..1.5,
@@ -188,8 +188,7 @@ Do not add prose, markdown or extra keys."""
     )
     with urllib.request.urlopen(req, timeout=90) as response:
         body = json.loads(response.read().decode("utf-8"))
-    content = body.get("message", {}).get("content", "{}")
-    candidate = json.loads(content)
+    candidate = json.loads(body.get("message", {}).get("content", "{}"))
     return normalize(candidate, fallback)
 
 
@@ -199,6 +198,7 @@ def cache_key(payload):
 
 def _model_payload(payload, memory_hint):
     result = dict(payload)
+    result["context"] = sanitize_context(payload)
     if memory_hint:
         context = dict(memory_hint)
         context.pop("request_id", None)
@@ -235,12 +235,15 @@ def decide(payload):
     now = time.time()
     with _lock:
         _stats["requests"] += 1
+        if payload.get("context"):
+            _stats["context_requests"] += 1
         cached = _cache.get(key)
         fresh = cached and now - cached[0] < LLM_CACHE_SECONDS
         if fresh:
             decision = dict(cached[1])
             decision["request_id"] = fallback.get("request_id", "")
             decision["memory"] = fallback.get("memory", {})
+            decision["context"] = fallback.get("context", {})
             return decision
         if key not in _pending:
             _pending.add(key)
@@ -256,8 +259,10 @@ def health():
     return {
         "status": "ok",
         "service": "aidi-gateway",
-        "version": "0.21",
+        "version": "0.22",
         "protocol": "scene-v1",
+        "context_protocol": "context-v1",
+        "raw_media_accepted": False,
         "model": MODEL,
         "ollama_url": OLLAMA_URL,
         "pending": pending,
@@ -268,7 +273,7 @@ def health():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AIDI-Gateway/0.21"
+    server_version = "AIDI-Gateway/0.22"
 
     def send_json(self, code, body, request_id=""):
         data = json.dumps(body, separators=(",", ":")).encode("utf-8")
@@ -315,5 +320,5 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print("AIDI Gateway v21 listening on %s:%d, model=%s" % (HOST, PORT, MODEL), flush=True)
+    print("AIDI Gateway v22 listening on %s:%d, model=%s" % (HOST, PORT, MODEL), flush=True)
     server.serve_forever()
