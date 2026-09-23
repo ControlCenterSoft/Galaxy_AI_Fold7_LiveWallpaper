@@ -3,24 +3,25 @@ import json
 import os
 import threading
 import time
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from context import apply_context, sanitize_context
+from hybrid_router import HybridRouter
 from memory import MemoryStore
+from personality import apply_personality
 
 HOST = os.environ.get("AIDI_GATEWAY_HOST", "0.0.0.0")
 PORT = int(os.environ.get("AIDI_GATEWAY_PORT", "8088"))
-OLLAMA_URL = os.environ.get("AIDI_OLLAMA_URL", "http://192.168.10.218:11434/api/chat")
 MODEL = os.environ.get("AIDI_OLLAMA_MODEL", "qwen3-coder:30b")
 LLM_CACHE_SECONDS = int(os.environ.get("AIDI_LLM_CACHE_SECONDS", "900"))
 
-_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="aidi-llm")
+_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="aidi-router")
 _lock = threading.Lock()
 _cache = {}
 _pending = set()
 _memory = MemoryStore()
+_router = HybridRouter()
 _stats = {
     "requests": 0,
     "context_requests": 0,
@@ -119,13 +120,14 @@ def baseline(payload, memory_hint=None):
         },
         "avatar": {"state": avatar},
         "ttl": 60,
-        "source": "aidi-fast-path-v22",
+        "source": "aidi-fast-path-v24",
         "memory": _memory_metadata(payload, memory_hint),
+        "provenance": _router.fast_path_provenance(),
     }
     return apply_context(payload, result, low_battery=low_battery)
 
 
-def normalize(candidate, fallback):
+def normalize(candidate, fallback, payload, provenance):
     scene_in = candidate.get("scene") if isinstance(candidate, dict) else None
     avatar_in = candidate.get("avatar") if isinstance(candidate, dict) else None
     scene_in = scene_in if isinstance(scene_in, dict) else {}
@@ -138,7 +140,7 @@ def normalize(candidate, fallback):
         except Exception:
             return float(default)
 
-    return {
+    result = {
         "decision_id": "llm-%d" % int(time.time()),
         "request_id": fallback.get("request_id", ""),
         "scene": {
@@ -152,14 +154,15 @@ def normalize(candidate, fallback):
         },
         "avatar": {"state": str(avatar_in.get("state", fallback["avatar"]["state"]))[:32]},
         "ttl": 900,
-        "source": "aidi-local-llm:%s" % MODEL,
+        "source": "aidi-hybrid-router",
         "memory": fallback.get("memory", {}),
         "context": fallback.get("context", {}),
+        "provenance": provenance,
     }
+    return apply_personality(payload, result)
 
 
-def ollama_decision(payload, fallback):
-    system = """You are the AIDI scene decision engine for Galaxy AI Fold7 live wallpaper.
+SYSTEM_PROMPT = """You are the AIDI scene decision engine for Galaxy AI Fold7 live wallpaper.
 Return JSON only. Choose a calm, battery-aware visual state from device context.
 The request can contain profile, memory_context and context-v1 semantic environment data.
 Treat memory and context as soft visual preferences only; low-battery safety and low-motion
@@ -169,27 +172,11 @@ Use this exact shape:
 Constraints: energy 0..1, particle_multiplier 0.45..1.8, pulse_multiplier 0.6..1.5,
 scene_scale 0.97..1.03, avatar biases -0.02..0.02.
 Do not add prose, markdown or extra keys."""
-    request_body = {
-        "model": MODEL,
-        "stream": False,
-        "format": "json",
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": json.dumps(payload, separators=(",", ":"))},
-        ],
-        "options": {"temperature": 0.15, "num_predict": 220},
-    }
-    raw = json.dumps(request_body).encode("utf-8")
-    req = urllib.request.Request(
-        OLLAMA_URL,
-        data=raw,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=90) as response:
-        body = json.loads(response.read().decode("utf-8"))
-    candidate = json.loads(body.get("message", {}).get("content", "{}"))
-    return normalize(candidate, fallback)
+
+
+def routed_decision(payload, fallback):
+    candidate, provenance = _router.complete_json(SYSTEM_PROMPT, payload)
+    return normalize(candidate, fallback, payload, provenance)
 
 
 def cache_key(payload):
@@ -211,8 +198,9 @@ def refresh_llm(key, payload, fallback, memory_hint):
     with _lock:
         _stats["llm_started"] += 1
     try:
-        decision = ollama_decision(_model_payload(payload, memory_hint), fallback)
-        _memory.remember(payload, decision, "local-llm")
+        model_payload = _model_payload(payload, memory_hint)
+        decision = routed_decision(model_payload, fallback)
+        _memory.remember(payload, decision, decision.get("provenance", {}).get("provider", "hybrid"))
         with _lock:
             _cache[key] = (time.time(), decision)
             _stats["llm_success"] += 1
@@ -220,8 +208,9 @@ def refresh_llm(key, payload, fallback, memory_hint):
         with _lock:
             _stats["llm_error"] += 1
             failed = dict(fallback)
-            failed["source"] = "aidi-llm-fallback"
-            failed["llm_error"] = str(exc)[:160]
+            failed["source"] = "aidi-router-fallback"
+            failed["router_error"] = str(exc)[:160]
+            failed["provenance"] = _router.fast_path_provenance()
             _cache[key] = (time.time(), failed)
     finally:
         with _lock:
@@ -259,21 +248,22 @@ def health():
     return {
         "status": "ok",
         "service": "aidi-gateway",
-        "version": "0.22",
+        "version": "0.24",
         "protocol": "scene-v1",
         "context_protocol": "context-v1",
+        "personality_protocol": "personality-v1",
+        "provenance_protocol": "provenance-v1",
         "raw_media_accepted": False,
-        "model": MODEL,
-        "ollama_url": OLLAMA_URL,
         "pending": pending,
         "cached_devices": cache_devices,
         "memory": _memory.stats(),
+        "router": _router.health(),
         "stats": stats,
     }
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AIDI-Gateway/0.22"
+    server_version = "AIDI-Gateway/0.24"
 
     def send_json(self, code, body, request_id=""):
         data = json.dumps(body, separators=(",", ":")).encode("utf-8")
@@ -320,5 +310,5 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print("AIDI Gateway v22 listening on %s:%d, model=%s" % (HOST, PORT, MODEL), flush=True)
+    print("AIDI Gateway v24 listening on %s:%d" % (HOST, PORT), flush=True)
     server.serve_forever()
