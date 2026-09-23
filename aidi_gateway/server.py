@@ -58,6 +58,7 @@ def baseline(payload):
 
     return {
         "decision_id": "fast-%d" % int(time.time()),
+        "request_id": str(payload.get("request_id", ""))[:160],
         "scene": {
             "name": name,
             "energy": energy,
@@ -91,6 +92,7 @@ def normalize(candidate, fallback):
 
     return {
         "decision_id": "llm-%d" % int(time.time()),
+        "request_id": fallback.get("request_id", ""),
         "scene": {
             "name": name,
             "energy": clamp(num("energy", base_scene["energy"]), 0.0, 1.0),
@@ -171,7 +173,9 @@ def decide(payload):
         cached = _cache.get(key)
         fresh = cached and now - cached[0] < LLM_CACHE_SECONDS
         if fresh:
-            return cached[1]
+            decision = dict(cached[1])
+            decision["request_id"] = fallback.get("request_id", "")
+            return decision
         if key not in _pending:
             _pending.add(key)
             _executor.submit(refresh_llm, key, payload, fallback)
@@ -198,12 +202,15 @@ def health():
 class Handler(BaseHTTPRequestHandler):
     server_version = "AIDI-Gateway/0.20"
 
-    def send_json(self, code, body):
+    def send_json(self, code, body, request_id=""):
         data = json.dumps(body, separators=(",", ":")).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-AIDI-Protocol", "scene-v1")
+        if request_id:
+            self.send_header("X-AIDI-Request-Id", request_id[:160])
         self.end_headers()
         self.wfile.write(data)
 
@@ -217,17 +224,22 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/api/v1/scene/analyze":
             self.send_json(404, {"error": "not_found"})
             return
+        request_id = self.headers.get("X-AIDI-Request-Id", "")
         if self.headers.get("X-AIDI-Protocol", "scene-v1") != "scene-v1":
-            self.send_json(400, {"error": "unsupported_protocol"})
+            self.send_json(400, {"error": "unsupported_protocol"}, request_id)
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > 65536:
                 raise ValueError("invalid content length")
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            self.send_json(200, decide(payload))
+            body_request_id = str(payload.get("request_id", ""))
+            if request_id and body_request_id and request_id != body_request_id:
+                raise ValueError("request id mismatch")
+            request_id = request_id or body_request_id
+            self.send_json(200, decide(payload), request_id)
         except Exception as exc:
-            self.send_json(400, {"error": "bad_request", "detail": str(exc)[:200]})
+            self.send_json(400, {"error": "bad_request", "detail": str(exc)[:200]}, request_id)
 
     def log_message(self, fmt, *args):
         print("%s - %s" % (self.address_string(), fmt % args), flush=True)
