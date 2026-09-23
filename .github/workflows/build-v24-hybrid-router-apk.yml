@@ -1,0 +1,172 @@
+name: Build Galaxy AI Fold7 v24.0 Hybrid Router APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v24-aidi-hybrid-router
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v24 hybrid router sources
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          router = Path('aidi_gateway/hybrid_router.py').read_text()
+          gateway = Path('aidi_gateway/server.py').read_text()
+          gradle = Path('app/build.gradle').read_text()
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+          for token in ['HybridRouter', 'CircuitBreaker', 'OpenAICompatibleProvider', 'provenance-v1']:
+              assert token in router, token
+          for token in ['HybridRouter', 'aidi-hybrid-router', 'provenance_protocol', 'router']:
+              assert token in gateway, token
+          assert "versionCode 240" in gradle
+          assert "versionName '24.0'" in gradle
+          assert 'android.permission.INTERNET' in manifest
+          for forbidden in ['android.permission.CAMERA', 'android.permission.RECORD_AUDIO',
+                            'ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION']:
+              assert forbidden not in manifest, forbidden
+          PY
+
+      - name: Test local-first routing, escalation and circuit breakers
+        env:
+          PYTHONPATH: aidi_gateway
+          AIDI_CLOUD_ENABLED: '1'
+          AIDI_CLOUD_URL: http://127.0.0.1:9/v1/chat/completions
+          AIDI_CLOUD_MODEL: ci-cloud-model
+          AIDI_BREAKER_FAILURES: '2'
+          AIDI_BREAKER_COOLDOWN_SECONDS: '5'
+        run: |
+          python3 -m py_compile aidi_gateway/server.py aidi_gateway/memory.py aidi_gateway/context.py aidi_gateway/personality.py aidi_gateway/hybrid_router.py
+          python3 - <<'PY'
+          from hybrid_router import HybridRouter, CircuitBreaker, ProviderError
+
+          class Provider:
+              def __init__(self, name, model, result=None, error=None, enabled=True):
+                  self.name = name
+                  self.model = model
+                  self.result = result
+                  self.error = error
+                  self.enabled = enabled
+                  self.calls = 0
+              def complete_json(self, system_prompt, payload):
+                  self.calls += 1
+                  if self.error:
+                      raise ProviderError(self.error)
+                  return dict(self.result or {})
+
+          router = HybridRouter()
+          router.local = Provider('local-test', 'local-model', {'scene': {'name': 'living_continuum'}})
+          router.cloud = Provider('cloud-test', 'cloud-model', {'scene': {'name': 'deep_nebula'}}, enabled=True)
+          candidate, provenance = router.complete_json('system', {'state': {}})
+          assert candidate['scene']['name'] == 'living_continuum'
+          assert provenance['tier'] == 'local' and provenance['cloud'] is False
+          assert router.cloud.calls == 0
+
+          router = HybridRouter()
+          router.local = Provider('local-test', 'local-model', error='offline')
+          router.cloud = Provider('cloud-test', 'cloud-model', {'scene': {'name': 'deep_nebula'}}, enabled=True)
+          candidate, provenance = router.complete_json('system', {'state': {}})
+          assert candidate['scene']['name'] == 'deep_nebula'
+          assert provenance['tier'] == 'cloud'
+          assert provenance['cloud'] is True and provenance['escalated'] is True
+
+          breaker = CircuitBreaker('ci', failure_threshold=2, cooldown_seconds=5)
+          breaker.failure('one')
+          assert breaker.allow() is True
+          breaker.failure('two')
+          assert breaker.allow() is False
+          assert breaker.snapshot()['state'] == 'open'
+
+          health = router.health()
+          assert health['cloud']['enabled'] is True
+          assert 'stats' in health
+          assert router.fast_path_provenance()['tier'] == 'deterministic'
+          PY
+
+      - name: Integration test AIDI Gateway v24 provenance contract
+        env:
+          PYTHONPATH: aidi_gateway
+          AIDI_GATEWAY_HOST: 127.0.0.1
+          AIDI_GATEWAY_PORT: '8769'
+          AIDI_QDRANT_URL: ''
+          AIDI_OLLAMA_URL: http://127.0.0.1:9/api/chat
+          AIDI_CLOUD_ENABLED: '0'
+          AIDI_LLM_CACHE_SECONDS: '900'
+        run: |
+          python3 aidi_gateway/server.py > /tmp/aidi-v24.log 2>&1 &
+          GATEWAY_PID=$!
+          trap 'kill $GATEWAY_PID || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8769/health >/tmp/aidi-v24-health.json; then break; fi
+            sleep 0.2
+          done
+          REQUEST_ID='ci-v24-router-42'
+          curl -fsS -o /tmp/aidi-v24-response.json \
+            -X POST http://127.0.0.1:8769/api/v1/scene/analyze \
+            -H 'Content-Type: application/json' \
+            -H 'X-AIDI-Protocol: scene-v1' \
+            -H "X-AIDI-Request-Id: $REQUEST_ID" \
+            -d '{"device":"GalaxyFold7-ci","app_version":"24.0","request_id":"ci-v24-router-42","state":{"battery":71,"charging":false,"fold_state":"main","hour":20,"motion_level":0.22,"display":{"width_px":2176,"height_px":1812,"orientation":"landscape"}},"profile":{"schema":"profile-v2","samples":8,"personality":{"presence":0.72,"serenity":0.68,"curiosity":0.64,"focus":0.70}},"context":{"schema":"context-v1","light":"normal","semantic_label":"normal_light_environment","confidence":0.8,"source":"android-light-sensor","raw_media":false}}'
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          health = json.loads(Path('/tmp/aidi-v24-health.json').read_text())
+          body = json.loads(Path('/tmp/aidi-v24-response.json').read_text())
+          assert health['version'] == '0.24'
+          assert health['provenance_protocol'] == 'provenance-v1'
+          assert 'router' in health
+          assert body['request_id'] == 'ci-v24-router-42'
+          provenance = body['provenance']
+          assert provenance['schema'] == 'provenance-v1'
+          assert provenance['tier'] in ('deterministic', 'local', 'cloud')
+          assert isinstance(provenance['cloud'], bool)
+          assert 0.0 <= float(body['scene']['energy']) <= 1.0
+          PY
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v24.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify Hybrid Router APK metadata, permissions and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v24.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v24.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='240'"
+          echo "$BADGING" | grep -q "versionName='24.0'"
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Fold7_LiveWallpaper_v24.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v24.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v24.0.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v24.0
+          path: Galaxy_AI_Fold7_LiveWallpaper_v24.0.apk
+          if-no-files-found: error
+          retention-days: 30
