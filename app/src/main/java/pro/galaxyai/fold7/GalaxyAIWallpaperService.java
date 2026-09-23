@@ -25,7 +25,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
     @Override
     public Engine onCreateEngine() {
         UniverseIdentity identity = loadUniverseIdentity();
-        return new V32Engine(identity.seed, identity.evolutionEpoch);
+        return new V34Engine(identity.seed, identity.evolutionEpoch);
     }
 
     private UniverseIdentity loadUniverseIdentity() {
@@ -54,7 +54,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         }
     }
 
-    private class V32Engine extends Engine {
+    private class V34Engine extends Engine {
         private final Handler handler = new Handler();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
@@ -68,6 +68,8 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 new AmbientPersonalityControllerV29(GalaxyAIWallpaperService.this);
         private final AIPersonalizationProfileV30 personalization =
                 new AIPersonalizationProfileV30(GalaxyAIWallpaperService.this);
+        private final AIStatusOverlayRendererV34 statusOverlay =
+                new AIStatusOverlayRendererV34(GalaxyAIWallpaperService.this);
         private final ParticleEngineV6 particles = new ParticleEngineV6();
         private final GlowEngineV6 glow = new GlowEngineV6();
         private final HologramEngineV6 hologram = new HologramEngineV6();
@@ -82,7 +84,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private boolean visible;
         private long frameDelayMillis = 37L;
 
-        V32Engine(long universeSeed, long evolutionEpoch) {
+        V34Engine(long universeSeed, long evolutionEpoch) {
             universe = new MemoryAwareUniverseControllerV21(universeSeed, evolutionEpoch);
         }
 
@@ -235,6 +237,20 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                                 * personality.getAuraParticleMultiplier()
                                 * portraitPresence.getParticleMultiplier()
                                 * (0.84f + personal.expressionIntensity * 0.18f)
+                );
+
+                float overlayWidth = main
+                        ? Math.min(w * 0.78f, avatarSize * 0.90f)
+                        : Math.min(w * 0.90f, avatarSize * 0.96f);
+                statusOverlay.draw(
+                        canvas,
+                        avatarX,
+                        avatarY + avatarSize * 0.66f,
+                        overlayWidth,
+                        decision,
+                        ambientPersonality.getReactionLevel(),
+                        personal.expressionIntensity,
+                        main
                 );
 
                 canvas.restore();
