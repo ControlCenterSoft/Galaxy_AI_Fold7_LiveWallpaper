@@ -48,7 +48,7 @@ public class MainActivity extends Activity {
                 ScrollView.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText("Galaxy AI Fold7 v46 — Живой внимательный взгляд");
+        title.setText("Galaxy AI Fold7 v47 — Живые микроэмоции лица");
         title.setTextSize(21f);
         root.addView(title, fullWidth());
 
@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
         root.addView(contextOff, buttonParams());
 
         TextView portraitInfo = new TextView(this);
-        portraitInfo.setText("v46 добавляет внимательный живой взгляд поверх деформируемого портрета v45: микросаккады и плавное направление взгляда зависят от AI-состояния, а при касании глаза мягко смещаются в сторону точки взаимодействия. Используется только деформация исходных пикселей области глаз — без нарисованных зрачков, овалов или масок. Моргание, движение головы, дыхание, русская TTS-анимация губ, жесты и Fold continuity сохранены.");
+        portraitInfo.setText("v47 добавляет микроэмоции непосредственно в сетку фотореалистичного портрета: брови мягко поднимаются или сходятся, щёки реагируют на улыбку, уголки исходных губ меняют положение в зависимости от calm/focused/thinking/happy/sleep. Никакая нарисованная маска поверх лица не используется. Живой взгляд v46, моргание, дыхание, движение головы, русская TTS-анимация губ, жесты и Fold continuity сохранены.");
         portraitInfo.setTextSize(14f);
         portraitInfo.setPadding(0, dp(8), 0, dp(10));
         root.addView(portraitInfo, fullWidth());
@@ -137,7 +137,7 @@ public class MainActivity extends Activity {
         root.addView(voiceOff, buttonParams());
 
         TextView privacy = new TextView(this);
-        privacy.setText("Приватность: направление взгляда вычисляется локально только из AI-состояния и координат касания. Деформация портрета, движение, жесты и lip-sync также выполняются локально в памяти. Камера, распознавание лица, микрофон, запись звука, точная геопозиция и исходные медиа не используются и не передаются.");
+        privacy.setText("Приватность: микроэмоции формируются только из уже разрешённого AI-состояния и локально деформируют исходные пиксели портрета. Взгляд использует AI-состояние и координаты касания. Камера, распознавание лица, микрофон, запись звука, точная геопозиция и исходные медиа не используются и не передаются.");
         privacy.setTextSize(13f);
         privacy.setPadding(0, dp(14), 0, dp(18));
         root.addView(privacy, fullWidth());
