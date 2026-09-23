@@ -6,10 +6,13 @@ import android.content.IntentFilter;
 import android.os.BatteryManager;
 
 import java.util.Calendar;
+import java.util.concurrent.atomic.AtomicLong;
 
+/** Collects a bounded, privacy-preserving snapshot for AIDI scene decisions. */
 public final class AIStateCollector {
     private final Context context;
     private final BatteryManager batteryManager;
+    private final AtomicLong sequence = new AtomicLong(0L);
 
     public AIStateCollector(Context context) {
         this.context = context.getApplicationContext();
@@ -17,6 +20,11 @@ public final class AIStateCollector {
     }
 
     public AIState capture(boolean mainDisplay, float motionLevel) {
+        return capture(mainDisplay, motionLevel, 0, 0);
+    }
+
+    public AIState capture(boolean mainDisplay, float motionLevel,
+                           int displayWidthPx, int displayHeightPx) {
         int battery = 50;
         if (batteryManager != null) {
             int measured = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
@@ -32,6 +40,16 @@ public final class AIStateCollector {
         }
 
         int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-        return new AIState(battery, charging, mainDisplay, hour, motionLevel);
+        return new AIState(
+                battery,
+                charging,
+                mainDisplay,
+                hour,
+                motionLevel,
+                displayWidthPx,
+                displayHeightPx,
+                System.currentTimeMillis(),
+                sequence.incrementAndGet()
+        );
     }
 }
