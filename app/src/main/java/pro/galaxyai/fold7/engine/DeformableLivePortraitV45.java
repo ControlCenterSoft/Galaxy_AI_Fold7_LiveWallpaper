@@ -14,13 +14,13 @@ import pro.galaxyai.fold7.R;
 import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
- * v45 Deformable Live Portrait renderer, extended by v46 attentive gaze mesh.
+ * Deformable Live Portrait renderer, extended by v46 attentive gaze and v47 micro-expressions.
  *
- * The photoreal portrait remains fully local, but is no longer rendered as a rigid card.
- * A bounded bitmap mesh deforms only the portrait pixels: small head/face motion, shoulder
- * breathing, texture-based blink compression, TTS-driven mouth articulation and v46 local
- * eye-region gaze displacement. No solid eye ovals, facial masks, painted mouth opening,
- * camera, microphone, location or raw-media capture are used.
+ * The photoreal portrait remains fully local. A bounded bitmap mesh deforms only original
+ * portrait pixels: head/face motion, shoulder breathing, texture blink, attentive gaze,
+ * emotion-driven brow/cheek/lip micro-expressions and TTS-driven mouth articulation.
+ * No solid eye ovals, facial masks, painted mouth opening, camera, microphone, location
+ * or raw-media capture are used.
  */
 public final class DeformableLivePortraitV45 {
     private static final int MESH_X = 20;
@@ -33,6 +33,7 @@ public final class DeformableLivePortraitV45 {
             Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
     private final float[] verts = new float[(MESH_X + 1) * (MESH_Y + 1) * 2];
     private final AttentionGazeControllerV46 attentionGaze = new AttentionGazeControllerV46();
+    private final MicroExpressionControllerV47 microExpression = new MicroExpressionControllerV47();
 
     private Bitmap portrait;
     private float time;
@@ -66,6 +67,7 @@ public final class DeformableLivePortraitV45 {
             emotion = normalizeEmotion(decision.avatarState);
         }
         attentionGaze.update(decision, dt);
+        microExpression.update(decision, dt);
         gazeX = attentionGaze.getGazeX();
         gazeY = attentionGaze.getGazeY();
         touchWeight *= (float) Math.pow(0.075f, dt);
@@ -142,7 +144,10 @@ public final class DeformableLivePortraitV45 {
         float localRoll = ((float) Math.sin(time * 0.19f + 0.3f) * 0.010f
                 + touchX * touchWeight * 0.013f) * activity;
         float blinkAmount = 1f - blinkPhase;
-        float smile = "happy".equals(emotion) ? 1f : ("calm".equals(emotion) ? 0.15f : 0f);
+        float smile = microExpression.getSmile();
+        float browLift = microExpression.getBrowLift();
+        float browPinch = microExpression.getBrowPinch();
+        float cheekLift = microExpression.getCheekLift();
 
         int p = 0;
         for (int row = 0; row <= MESH_Y; row++) {
@@ -160,38 +165,46 @@ public final class DeformableLivePortraitV45 {
                 float dy = head * (headLift * srcH * 0.0015f
                         + touchY * touchWeight * srcH * 0.0032f);
 
-                // Local head rotation relative to the shoulders/background.
                 float cx = 0.535f * srcW;
                 float cy = 0.355f * srcH;
                 dx += -(y - cy) * localRoll * head;
                 dy += (x - cx) * localRoll * head;
 
-                // Chest/shoulder breathing deforms only lower portrait pixels.
                 dy += torso * breath * srcH * (0.0019f + energy * 0.0011f) * activity;
                 dx += (nx - 0.53f) * torso * breath * srcW * 0.0022f * activity;
 
-                // Texture-only blink: compress source eye pixels toward the eye line.
                 float eyeLeft = gaussian(nx, 0.405f, 0.095f) * gaussian(ny, EYE_Y, 0.036f);
                 float eyeRight = gaussian(nx, 0.625f, 0.095f) * gaussian(ny, EYE_Y, 0.036f);
                 float eyeWeight = Math.min(1f, eyeLeft + eyeRight);
-
-                // v46 attentive gaze: shift only original eye-region pixels. This is a tiny
-                // mesh displacement, not a drawn pupil/eye overlay.
                 dx += gazeX * srcW * 0.0058f * eyeWeight;
                 dy += gazeY * srcH * 0.0027f * eyeWeight;
                 dy += (EYE_Y - ny) * srcH * blinkAmount * 0.82f * eyeWeight;
 
-                // TTS mouth articulation by deforming the original lip pixels, never painting
-                // a synthetic mouth over the face.
+                // v47 eyebrow expression deforms the original brow/forehead pixels.
+                float browLeft = gaussian(nx, 0.405f, 0.105f) * gaussian(ny, 0.294f, 0.035f);
+                float browRight = gaussian(nx, 0.625f, 0.105f) * gaussian(ny, 0.294f, 0.035f);
+                float browWeight = Math.min(1f, browLeft + browRight);
+                dy -= browLift * srcH * 0.0052f * browWeight;
+                float centerPull = (0.515f - nx);
+                dx += centerPull * browPinch * srcW * 0.017f * browWeight;
+                dy += browPinch * srcH * 0.0018f * browWeight;
+
+                // v47 cheek lift uses original skin pixels and remains intentionally subtle.
+                float cheekLeft = gaussian(nx, 0.395f, 0.12f) * gaussian(ny, 0.445f, 0.07f);
+                float cheekRight = gaussian(nx, 0.665f, 0.12f) * gaussian(ny, 0.445f, 0.07f);
+                float cheekWeight = Math.min(1f, cheekLeft + cheekRight);
+                dy -= cheekLift * srcH * 0.0033f * cheekWeight;
+                dx += (nx < 0.53f ? -1f : 1f) * cheekLift * srcW * 0.0015f * cheekWeight;
+
                 float mouthWeight = gaussian(nx, MOUTH_X, 0.094f)
                         * gaussian(ny, MOUTH_Y, 0.043f);
                 float mouthDirection = ny < MOUTH_Y ? -1f : 1f;
                 dy += mouthDirection * mouthOpen * srcH * 0.0085f * mouthWeight;
 
-                // Very small smile lift at the original lip corners.
                 float cornerDistance = Math.abs(nx - MOUTH_X);
                 float cornerWeight = mouthWeight * clamp(cornerDistance / 0.065f, 0f, 1f);
-                dy -= smile * srcH * 0.0022f * cornerWeight;
+                dy -= smile * srcH * 0.0041f * cornerWeight;
+                dx += (nx < MOUTH_X ? -1f : 1f) * smile * srcW * 0.0019f * cornerWeight;
 
                 verts[p++] = x + dx;
                 verts[p++] = y + dy;
