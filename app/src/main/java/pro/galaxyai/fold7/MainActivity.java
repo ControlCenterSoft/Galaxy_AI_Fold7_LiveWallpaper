@@ -48,7 +48,7 @@ public class MainActivity extends Activity {
                 ScrollView.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText("Galaxy AI Fold7 v42 — Автономная живая мимика и жесты");
+        title.setText("Galaxy AI Fold7 v43 — Живой фотореалистичный персонаж без маски");
         title.setTextSize(21f);
         root.addView(title, fullWidth());
 
@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
         root.addView(contextOff, buttonParams());
 
         TextView portraitInfo = new TextView(this);
-        portraitInfo.setText("AI-персонаж теперь не только постоянно движется, моргает и синхронизирует губы с русским TTS, но и автономно выполняет редкие естественные жесты: кивки, лёгкие наклоны, короткие взгляды в сторону и подтверждающее движение при начале речи. Частота и амплитуда зависят от calm/focused/thinking/happy/sleep и остаются мягкими, чтобы персонаж не выглядел механическим.");
+        portraitInfo.setText("v43 исправляет визуальную регрессию на реальном устройстве: с лица убраны процедурные овалы век и полноэкранные цветные слои, а glow/hologram/particles перенесены за непрозрачный фотореалистичный портрет. Сохраняются постоянное движение, дыхание, параллакс, реакции на касание и Fold, автономные жесты и локальная синхронизация губ с русским TTS.");
         portraitInfo.setTextSize(14f);
         portraitInfo.setPadding(0, dp(8), 0, dp(10));
         root.addView(portraitInfo, fullWidth());
