@@ -48,7 +48,7 @@ public class MainActivity extends Activity {
                 ScrollView.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText("Galaxy AI Fold7 v49 — Координация взгляда и головы");
+        title.setText("Galaxy AI Fold7 v50 — Контекстное живое присутствие");
         title.setTextSize(21f);
         root.addView(title, fullWidth());
 
@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
         root.addView(contextOff, buttonParams());
 
         TextView portraitInfo = new TextView(this);
-        portraitInfo.setText("v49 добавляет естественную координацию глаз и головы: взгляд сначала переводится на новую точку фиксации, а голова с небольшой задержкой следует только за заметным смещением. При высокой концентрации голова возвращается ближе к центру, а во сне движение почти исчезает. v48 фиксации и саккады, микроэмоции v47, mesh-деформация, моргание, дыхание, русская TTS-анимация губ, жесты и Fold continuity сохранены.");
+        portraitInfo.setText("v50 добавляет контекстное живое присутствие: AI чередует естественные периоды неподвижности, лёгкие наклоны, короткие кивки и мягкое возвращение в нейтральную позу вместо постоянного циклического движения. Во время русской речи кивки становятся чуть заметнее, а в режиме сна почти полностью затухают. Координация глаз и головы v49, естественные фиксации v48, микроэмоции, mesh-деформация, моргание, дыхание, TTS-анимация губ и Fold continuity сохранены.");
         portraitInfo.setTextSize(14f);
         portraitInfo.setPadding(0, dp(8), 0, dp(10));
         root.addView(portraitInfo, fullWidth());
@@ -137,7 +137,7 @@ public class MainActivity extends Activity {
         root.addView(voiceOff, buttonParams());
 
         TextView privacy = new TextView(this);
-        privacy.setText("Приватность: координация глаз и головы, фиксации взгляда, саккады и микроэмоции формируются только из уже разрешённого AI-состояния и локально деформируют исходные пиксели портрета. Касание передаёт только нормализованные координаты внутри live wallpaper. Камера, распознавание лица, микрофон, запись звука, точная геопозиция и исходные медиа не используются и не передаются.");
+        privacy.setText("Приватность: контекстные позы, координация глаз и головы, фиксации взгляда и микроэмоции формируются только локально из разрешённого AI-состояния и состояния TTS. Касание передаёт только нормализованные координаты внутри live wallpaper. Камера, распознавание лица, микрофон, запись звука, точная геопозиция и исходные медиа не используются и не передаются.");
         privacy.setTextSize(13f);
         privacy.setPadding(0, dp(14), 0, dp(18));
         root.addView(privacy, fullWidth());
