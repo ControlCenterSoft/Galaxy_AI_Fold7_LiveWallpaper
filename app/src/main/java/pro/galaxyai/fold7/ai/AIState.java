@@ -9,14 +9,16 @@ public final class AIState {
     public final boolean mainDisplay;
     public final int hourOfDay;
     public final float motionLevel;
+    public final AIProfile profile;
 
     public AIState(int batteryPercent, boolean charging, boolean mainDisplay,
-                   int hourOfDay, float motionLevel) {
+                   int hourOfDay, float motionLevel, AIProfile profile) {
         this.batteryPercent = Math.max(0, Math.min(100, batteryPercent));
         this.charging = charging;
         this.mainDisplay = mainDisplay;
         this.hourOfDay = Math.max(0, Math.min(23, hourOfDay));
         this.motionLevel = Math.max(0f, Math.min(1f, motionLevel));
+        this.profile = profile == null ? AIProfile.empty() : profile;
     }
 
     public JSONObject toJson() throws JSONException {
@@ -29,8 +31,9 @@ public final class AIState {
 
         JSONObject root = new JSONObject();
         root.put("device", "GalaxyFold7");
-        root.put("app_version", "20.0");
+        root.put("app_version", "21.0");
         root.put("state", state);
+        root.put("profile", profile.toJson());
         return root;
     }
 }
