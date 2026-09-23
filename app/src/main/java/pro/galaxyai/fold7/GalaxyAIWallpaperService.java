@@ -25,7 +25,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
     @Override
     public Engine onCreateEngine() {
         UniverseIdentity identity = loadUniverseIdentity();
-        return new V34Engine(identity.seed, identity.evolutionEpoch);
+        return new V36Engine(identity.seed, identity.evolutionEpoch);
     }
 
     private UniverseIdentity loadUniverseIdentity() {
@@ -54,13 +54,14 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         }
     }
 
-    private class V34Engine extends Engine {
+    private class V36Engine extends Engine {
         private final Handler handler = new Handler();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
         private final FoldTransitionController fold = new FoldTransitionController();
         private final GalaxySceneRendererV6 galaxy = new GalaxySceneRendererV6();
-        private final AIAvatarRendererV31 avatar = new AIAvatarRendererV31();
+        private final PhotorealAIAvatarRendererV36 avatar =
+                new PhotorealAIAvatarRendererV36(GalaxyAIWallpaperService.this);
         private final PortraitPresenceControllerV32 portraitPresence = new PortraitPresenceControllerV32();
         private final AvatarStyleControllerV28 avatarStyle =
                 new AvatarStyleControllerV28(GalaxyAIWallpaperService.this);
@@ -84,7 +85,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private boolean visible;
         private long frameDelayMillis = 37L;
 
-        V34Engine(long universeSeed, long evolutionEpoch) {
+        V36Engine(long universeSeed, long evolutionEpoch) {
             universe = new MemoryAwareUniverseControllerV21(universeSeed, evolutionEpoch);
         }
 
@@ -122,6 +123,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
             handler.removeCallbacks(loop);
             ambientContext.stop();
             ambientPersonality.shutdown();
+            avatar.recycle();
             aidi.shutdown();
             super.onDestroy();
         }
@@ -159,7 +161,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 personality.setDecision(decision);
                 universe.update(deltaSeconds, main);
                 personality.update(deltaSeconds);
-                avatar.update(decision, avatarStyle.getStyle(), personal, deltaSeconds, main);
+                avatar.update(decision, deltaSeconds);
 
                 portraitPresence.update(
                         decision == null ? "calm" : decision.avatarState,
@@ -186,6 +188,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 canvas.scale(sceneScale, sceneScale, w / 2f, h / 2f);
 
                 galaxy.draw(canvas, w, h, main);
+                avatar.draw(canvas, w, h, main);
 
                 float avatarX = (main ? w * 0.54f : w * 0.50f)
                         + w * (universe.getAvatarHorizontalBias() + personality.getHorizontalDrift()) * 0.72f
@@ -228,7 +231,6 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                                     * warmthHologram
                     );
                 }
-                avatar.draw(canvas, avatarX, avatarY, avatarSize);
                 particles.draw(
                         canvas,
                         avatarX,
