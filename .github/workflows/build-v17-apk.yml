@@ -1,0 +1,51 @@
+name: Build Galaxy AI Fold7 v17.0 APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v17-continuum-universe
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v17.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify package metadata and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v17.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v17.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='170'"
+          echo "$BADGING" | grep -q "versionName='17.0'"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v17.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v17.0.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v17.0
+          path: Galaxy_AI_Fold7_LiveWallpaper_v17.0.apk
+          if-no-files-found: error
+          retention-days: 30
