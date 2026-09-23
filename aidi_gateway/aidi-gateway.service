@@ -1,0 +1,25 @@
+[Unit]
+Description=AIDI Gateway for Galaxy AI Fold7 LiveWallpaper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/aidi-gateway
+Environment=AIDI_GATEWAY_HOST=0.0.0.0
+Environment=AIDI_GATEWAY_PORT=8088
+Environment=AIDI_OLLAMA_URL=http://192.168.10.218:11434/api/chat
+Environment=AIDI_OLLAMA_MODEL=qwen3-coder:30b
+Environment=AIDI_LLM_CACHE_SECONDS=900
+ExecStart=/usr/bin/python3 /opt/aidi-gateway/server.py
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/aidi-gateway
+
+[Install]
+WantedBy=multi-user.target
