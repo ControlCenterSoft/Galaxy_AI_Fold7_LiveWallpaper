@@ -12,6 +12,7 @@ import android.widget.TextView;
 
 import pro.galaxyai.fold7.ai.AIPersonalizationProfileV30;
 import pro.galaxyai.fold7.ai.RussianAIPersonalityV33;
+import pro.galaxyai.fold7.engine.AIStatusOverlayRendererV34;
 import pro.galaxyai.fold7.engine.AmbientPersonalityControllerV29;
 import pro.galaxyai.fold7.engine.AvatarStyleControllerV28;
 import pro.galaxyai.fold7.engine.AvatarStyleV28;
@@ -20,6 +21,7 @@ public class MainActivity extends Activity {
     private TextView selectedStyle;
     private TextView voiceStatus;
     private TextView profileStatus;
+    private TextView contextStatus;
     private AIPersonalizationProfileV30 personalization;
 
     @Override
@@ -33,20 +35,42 @@ public class MainActivity extends Activity {
         root.setPadding(36, 36, 36, 36);
 
         TextView title = new TextView(this);
-        title.setText("Galaxy AI Fold7 v33 — Русская AI Personality");
+        title.setText("Galaxy AI Fold7 v34 — Русское контекстное присутствие");
         title.setTextSize(21f);
         root.addView(title, fullWidth());
 
         TextView languageInfo = new TextView(this);
         languageInfo.setText("Язык общения AI на телефоне: Русский (ru-RU). "
-                + "Голосовые реакции формируются локально через Android TTS. "
-                + "AIDI Gateway получает только код локали и безопасные параметры стиля общения.");
+                + "v34 добавляет короткие контекстные русские статусы прямо под живым портретом. "
+                + "Они формируются локально из уже доступных безопасных параметров сцены.");
         languageInfo.setTextSize(14f);
         languageInfo.setPadding(0, 12, 0, 12);
         root.addView(languageInfo, fullWidth());
 
+        contextStatus = new TextView(this);
+        contextStatus.setTextSize(15f);
+        contextStatus.setPadding(0, 4, 0, 8);
+        root.addView(contextStatus, fullWidth());
+        refreshContextStatus();
+
+        Button contextOn = new Button(this);
+        contextOn.setText("Показывать русские AI-статусы");
+        contextOn.setOnClickListener(v -> {
+            AIStatusOverlayRendererV34.setVisible(MainActivity.this, true);
+            refreshContextStatus();
+        });
+        root.addView(contextOn, fullWidth());
+
+        Button contextOff = new Button(this);
+        contextOff.setText("Скрыть AI-статусы");
+        contextOff.setOnClickListener(v -> {
+            AIStatusOverlayRendererV34.setVisible(MainActivity.this, false);
+            refreshContextStatus();
+        });
+        root.addView(contextOff, fullWidth());
+
         TextView portraitInfo = new TextView(this);
-        portraitInfo.setText("Живой AI-аватар сохраняет v32 Expression Presence: плавное внимание, эмоции, "
+        portraitInfo.setText("Живой AI-аватар сохраняет Expression Presence: плавное внимание, эмоции, "
                 + "масштаб и позиционирование портрета, адаптивное свечение и частицы, Fold continuity и тихий sleep-режим.");
         portraitInfo.setTextSize(14f);
         portraitInfo.setPadding(0, 8, 0, 12);
@@ -86,7 +110,7 @@ public class MainActivity extends Activity {
         addStyleButton(root, "Стиль лица: Custom Aurora", AvatarStyleV28.CUSTOM);
 
         TextView privacy = new TextView(this);
-        privacy.setText("Приватность: внешность и параметры голоса хранятся локально. "
+        privacy.setText("Приватность: внешность, параметры голоса и видимость AI-статусов хранятся локально. "
                 + "AIDI получает только ограниченные нечувствительные значения предпочтений, локаль ru-RU "
                 + "и стиль общения; имя, аккаунт, микрофон, камера, геолокация и raw media не передаются.");
         privacy.setTextSize(14f);
@@ -159,6 +183,12 @@ public class MainActivity extends Activity {
     private void refreshStyle() {
         AvatarStyleControllerV28 controller = new AvatarStyleControllerV28(this);
         selectedStyle.setText("Стиль аватара: " + controller.getStyle().displayName);
+    }
+
+    private void refreshContextStatus() {
+        boolean visible = AIStatusOverlayRendererV34.readVisible(this);
+        contextStatus.setText("Контекстные статусы AI: " + (visible ? "показываются" : "скрыты")
+                + " · язык: Русский (ru-RU)");
     }
 
     private void refreshVoiceStatus() {
