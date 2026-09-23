@@ -13,6 +13,7 @@ import pro.galaxyai.fold7.ai.AIPersonalizationProfileV30;
 import pro.galaxyai.fold7.ai.AIState;
 import pro.galaxyai.fold7.ai.AIStateCollector;
 import pro.galaxyai.fold7.ai.AmbientContextCollector;
+import pro.galaxyai.fold7.ai.SceneDecision;
 import pro.galaxyai.fold7.engine.*;
 
 public class GalaxyAIWallpaperService extends WallpaperService {
@@ -24,7 +25,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
     @Override
     public Engine onCreateEngine() {
         UniverseIdentity identity = loadUniverseIdentity();
-        return new V31Engine(identity.seed, identity.evolutionEpoch);
+        return new V32Engine(identity.seed, identity.evolutionEpoch);
     }
 
     private UniverseIdentity loadUniverseIdentity() {
@@ -53,13 +54,14 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         }
     }
 
-    private class V31Engine extends Engine {
+    private class V32Engine extends Engine {
         private final Handler handler = new Handler();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
         private final FoldTransitionController fold = new FoldTransitionController();
         private final GalaxySceneRendererV6 galaxy = new GalaxySceneRendererV6();
         private final AIAvatarRendererV31 avatar = new AIAvatarRendererV31();
+        private final PortraitPresenceControllerV32 portraitPresence = new PortraitPresenceControllerV32();
         private final AvatarStyleControllerV28 avatarStyle =
                 new AvatarStyleControllerV28(GalaxyAIWallpaperService.this);
         private final AmbientPersonalityControllerV29 ambientPersonality =
@@ -80,7 +82,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private boolean visible;
         private long frameDelayMillis = 37L;
 
-        V31Engine(long universeSeed, long evolutionEpoch) {
+        V32Engine(long universeSeed, long evolutionEpoch) {
             universe = new MemoryAwareUniverseControllerV21(universeSeed, evolutionEpoch);
         }
 
@@ -149,15 +151,29 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                     aidi.requestIfNeeded(state);
                 }
 
+                SceneDecision decision = aidi.getDecision();
                 AIPersonalizationProfileV30.Snapshot personal = personalization.snapshot();
-                universe.setDecision(aidi.getDecision());
-                personality.setDecision(aidi.getDecision());
+                universe.setDecision(decision);
+                personality.setDecision(decision);
                 universe.update(deltaSeconds, main);
                 personality.update(deltaSeconds);
-                avatar.update(aidi.getDecision(), avatarStyle.getStyle(), personal, deltaSeconds, main);
+                avatar.update(decision, avatarStyle.getStyle(), personal, deltaSeconds, main);
+
+                portraitPresence.update(
+                        decision == null ? "calm" : decision.avatarState,
+                        decision == null ? 0.55f : decision.avatarPresence,
+                        decision == null ? 0.42f : decision.focus,
+                        decision == null ? 0.38f : decision.curiosity,
+                        decision == null ? 0.45f : decision.energy,
+                        personal.expressionIntensity,
+                        main,
+                        deltaSeconds
+                );
+
                 ambientPersonality.applyVoiceManner(personal.voicePitch, personal.voiceRate);
-                ambientPersonality.maybeReact(aidi.getDecision());
-                frameDelayMillis = universe.getFrameDelayMillis(main);
+                ambientPersonality.maybeReact(decision);
+                frameDelayMillis = portraitPresence.getSuggestedFrameDelayMillis(
+                        universe.getFrameDelayMillis(main));
 
                 canvas.save();
                 canvas.translate(
@@ -169,16 +185,20 @@ public class GalaxyAIWallpaperService extends WallpaperService {
 
                 galaxy.draw(canvas, w, h, main);
 
-                // v31 moves the portrait up and makes it the dominant visual element.
                 float avatarX = (main ? w * 0.54f : w * 0.50f)
-                        + w * (universe.getAvatarHorizontalBias() + personality.getHorizontalDrift()) * 0.72f;
+                        + w * (universe.getAvatarHorizontalBias() + personality.getHorizontalDrift()) * 0.72f
+                        + w * portraitPresence.getHorizontalShift();
                 float avatarY = h * (main ? 0.405f : 0.385f)
-                        + h * (universe.getAvatarVerticalBias() + personality.getVerticalDrift()) * 0.55f;
+                        + h * (universe.getAvatarVerticalBias() + personality.getVerticalDrift()) * 0.55f
+                        + h * portraitPresence.getVerticalShift();
                 float personalScale = 0.96f + personal.expressionIntensity * 0.12f;
                 float baseAvatarSize = main
                         ? Math.min(w, h) * 0.84f
                         : w * 1.02f;
-                float avatarSize = baseAvatarSize * personality.getAvatarScale() * personalScale;
+                float avatarSize = baseAvatarSize
+                        * personality.getAvatarScale()
+                        * personalScale
+                        * portraitPresence.getScaleMultiplier();
 
                 AvatarStyleV28 style = avatarStyle.getStyle();
                 float eyeGlow = 0.84f + personal.eyeGlow * 0.24f;
@@ -192,6 +212,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                                 * universe.getPulseMultiplier()
                                 * personality.getGlowMultiplier()
                                 * styleGlow
+                                * portraitPresence.getGlowMultiplier()
                 );
                 if (style != AvatarStyleV28.HUMAN) {
                     hologram.draw(
@@ -212,6 +233,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                         avatarY,
                         avatarSize * 1.05f * universe.getParticleMultiplier()
                                 * personality.getAuraParticleMultiplier()
+                                * portraitPresence.getParticleMultiplier()
                                 * (0.84f + personal.expressionIntensity * 0.18f)
                 );
 
