@@ -20,6 +20,8 @@ public final class AIDIClient {
     private volatile long nextRefreshAtMs = 0L;
     private volatile String decisionSource = "bootstrap";
     private volatile String lastGatewayError = "";
+    private volatile long lastGatewayLatencyMs = -1L;
+    private volatile long lastGatewaySuccessAtMs = 0L;
 
     public AIDIClient() {
         this(new HttpAIDIGatewayTransport());
@@ -42,24 +44,45 @@ public final class AIDIClient {
         return lastGatewayError;
     }
 
+    public long getLastGatewayLatencyMs() {
+        return lastGatewayLatencyMs;
+    }
+
+    public long getLastGatewaySuccessAtMs() {
+        return lastGatewaySuccessAtMs;
+    }
+
+    /**
+     * Lets the renderer avoid collecting battery/display state on every frame.
+     * requestIfNeeded() performs the same check again to keep the transition race-safe.
+     */
+    public boolean needsRefresh() {
+        return System.currentTimeMillis() >= nextRefreshAtMs && !requestInFlight.get();
+    }
+
     public void requestIfNeeded(final AIState state) {
+        if (state == null) return;
         long now = System.currentTimeMillis();
         if (now < nextRefreshAtMs || !requestInFlight.compareAndSet(false, true)) return;
 
         executor.execute(new Runnable() {
             @Override
             public void run() {
+                long startedAt = System.currentTimeMillis();
                 try {
                     SceneDecision remote = transport.request(state);
                     decision = remote;
                     decisionSource = "aidi_gateway";
                     lastGatewayError = "";
+                    lastGatewayLatencyMs = Math.max(0L, System.currentTimeMillis() - startedAt);
+                    lastGatewaySuccessAtMs = System.currentTimeMillis();
                     nextRefreshAtMs = System.currentTimeMillis() + clampRemoteTtl(remote.ttlSeconds);
                 } catch (Exception error) {
                     SceneDecision local = fallbackAI.decide(state);
                     decision = local;
                     decisionSource = "local_fallback";
                     lastGatewayError = error.getClass().getSimpleName();
+                    lastGatewayLatencyMs = Math.max(0L, System.currentTimeMillis() - startedAt);
                     nextRefreshAtMs = System.currentTimeMillis() + fallbackRetryDelay(local.ttlSeconds);
                 } finally {
                     requestInFlight.set(false);
