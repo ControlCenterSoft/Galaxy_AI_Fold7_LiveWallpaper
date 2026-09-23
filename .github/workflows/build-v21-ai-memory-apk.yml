@@ -1,0 +1,154 @@
+name: Build Galaxy AI Fold7 v21.0 AI Memory APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v21-ai-memory-universe
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v21 memory sources
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          state = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIState.java').read_text()
+          memory = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIProfileMemory.java').read_text()
+          client = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIDIClient.java').read_text()
+          service = Path('app/src/main/java/pro/galaxyai/fold7/GalaxyAIWallpaperService.java').read_text()
+          gateway = Path('aidi_gateway/server.py').read_text()
+          for token in ['profile-v1', 'average_energy', 'average_particles']:
+              assert token in memory, token
+          assert 'withProfile' in state
+          assert 'profileMemory.record(remote, true)' in client
+          assert 'new AIDIClient(GalaxyAIWallpaperService.this)' in service
+          assert 'MemoryStore' in gateway
+          assert 'memory_context' in gateway
+          PY
+
+      - name: Smoke test bounded AIDI memory
+        env:
+          PYTHONPATH: aidi_gateway
+          AIDI_QDRANT_URL: ''
+        run: |
+          python3 -m py_compile aidi_gateway/server.py aidi_gateway/memory.py
+          python3 - <<'PY'
+          from memory import MemoryStore
+          store = MemoryStore()
+          payload = {
+              'device': 'GalaxyFold7-ci',
+              'state': {
+                  'battery': 77,
+                  'charging': False,
+                  'fold_state': 'main',
+                  'hour': 21,
+                  'motion_level': 0.2,
+              },
+          }
+          decision = {
+              'scene': {
+                  'name': 'memory_nebula',
+                  'energy': 0.42,
+                  'particle_multiplier': 0.91,
+                  'pulse_multiplier': 0.95,
+                  'scene_scale': 1.001,
+              },
+              'avatar': {'state': 'calm'},
+              'ttl': 900,
+          }
+          store.remember(payload, decision, 'ci')
+          recalled = store.recall(payload)
+          assert recalled is not None
+          assert recalled['scene']['name'] == 'memory_nebula'
+          assert recalled['_memory_backend'] == 'local'
+          stats = store.stats()
+          assert stats['local_writes'] == 1
+          assert stats['local_hits'] == 1
+          assert stats['qdrant_enabled'] is False
+          PY
+
+      - name: Integration test AIDI Gateway v21 profile and memory contract
+        env:
+          PYTHONPATH: aidi_gateway
+          AIDI_GATEWAY_HOST: 127.0.0.1
+          AIDI_GATEWAY_PORT: '8766'
+          AIDI_QDRANT_URL: ''
+          AIDI_OLLAMA_URL: http://127.0.0.1:9/api/chat
+          AIDI_LLM_CACHE_SECONDS: '900'
+        run: |
+          python3 aidi_gateway/server.py > /tmp/aidi-v21.log 2>&1 &
+          GATEWAY_PID=$!
+          trap 'kill $GATEWAY_PID || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8766/health >/tmp/aidi-v21-health.json; then break; fi
+            sleep 0.2
+          done
+          cat /tmp/aidi-v21-health.json
+
+          REQUEST_ID='ci-v21-memory-42'
+          curl -fsS -D /tmp/aidi-v21-headers -o /tmp/aidi-v21-response.json \
+            -X POST http://127.0.0.1:8766/api/v1/scene/analyze \
+            -H 'Content-Type: application/json' \
+            -H 'X-AIDI-Protocol: scene-v1' \
+            -H "X-AIDI-Request-Id: $REQUEST_ID" \
+            -d '{"device":"GalaxyFold7-ci","app_version":"21.0","request_id":"ci-v21-memory-42","captured_at_ms":1770000000000,"state_sequence":42,"state":{"battery":82,"charging":false,"fold_state":"main","hour":22,"motion_level":0.18,"display":{"width_px":2176,"height_px":1812,"orientation":"landscape"}},"profile":{"schema":"profile-v1","samples":5,"average_energy":0.37,"average_particles":0.88,"last_scene":"deep_nebula","last_avatar":"calm","gateway_successes":4,"fallback_count":1}}'
+          cat /tmp/aidi-v21-headers
+          cat /tmp/aidi-v21-response.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          headers = Path('/tmp/aidi-v21-headers').read_text().lower()
+          body = json.loads(Path('/tmp/aidi-v21-response.json').read_text())
+          health = json.loads(Path('/tmp/aidi-v21-health.json').read_text())
+          assert 'x-aidi-protocol: scene-v1' in headers
+          assert body['request_id'] == 'ci-v21-memory-42'
+          assert body['memory']['profile_samples'] == 5
+          assert body['memory']['recall_backend'] in ('none', 'local', 'qdrant')
+          assert 0.0 <= float(body['scene']['energy']) <= 1.0
+          assert health['version'] == '0.21'
+          assert health['memory']['qdrant_enabled'] is False
+          PY
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v21.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify AI Memory APK metadata, permission and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v21.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v21.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='210'"
+          echo "$BADGING" | grep -q "versionName='21.0'"
+          $ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Fold7_LiveWallpaper_v21.0.apk | grep -q 'android.permission.INTERNET'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v21.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v21.0.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v21.0
+          path: Galaxy_AI_Fold7_LiveWallpaper_v21.0.apk
+          if-no-files-found: error
+          retention-days: 30
