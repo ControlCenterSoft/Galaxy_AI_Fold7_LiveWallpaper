@@ -14,13 +14,13 @@ import pro.galaxyai.fold7.R;
 import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
- * v45 Deformable Live Portrait renderer.
+ * v45 Deformable Live Portrait renderer, extended by v46 attentive gaze mesh.
  *
  * The photoreal portrait remains fully local, but is no longer rendered as a rigid card.
  * A bounded bitmap mesh deforms only the portrait pixels: small head/face motion, shoulder
- * breathing, texture-based blink compression and TTS-driven mouth articulation. No solid
- * eye ovals, facial masks, painted mouth opening, camera, microphone, location or raw-media
- * capture are used.
+ * breathing, texture-based blink compression, TTS-driven mouth articulation and v46 local
+ * eye-region gaze displacement. No solid eye ovals, facial masks, painted mouth opening,
+ * camera, microphone, location or raw-media capture are used.
  */
 public final class DeformableLivePortraitV45 {
     private static final int MESH_X = 20;
@@ -40,6 +40,8 @@ public final class DeformableLivePortraitV45 {
     private float curiosity = 0.38f;
     private float serenity = 0.72f;
     private float mouthOpen;
+    private float gazeX;
+    private float gazeY;
     private float touchX;
     private float touchY;
     private float touchWeight;
@@ -68,6 +70,11 @@ public final class DeformableLivePortraitV45 {
 
     public void setMouthOpen(float value) {
         mouthOpen = clamp(value, 0f, 1f);
+    }
+
+    public void setGaze(float normalizedX, float normalizedY) {
+        gazeX = clamp(normalizedX, -1f, 1f);
+        gazeY = clamp(normalizedY, -1f, 1f);
     }
 
     public void onTouch(float normalizedX, float normalizedY, boolean pressed) {
@@ -162,6 +169,11 @@ public final class DeformableLivePortraitV45 {
                 float eyeLeft = gaussian(nx, 0.405f, 0.095f) * gaussian(ny, EYE_Y, 0.036f);
                 float eyeRight = gaussian(nx, 0.625f, 0.095f) * gaussian(ny, EYE_Y, 0.036f);
                 float eyeWeight = Math.min(1f, eyeLeft + eyeRight);
+
+                // v46 attentive gaze: shift only original eye-region pixels. This is a tiny
+                // mesh displacement, not a drawn pupil/eye overlay.
+                dx += gazeX * srcW * 0.0058f * eyeWeight;
+                dy += gazeY * srcH * 0.0027f * eyeWeight;
                 dy += (EYE_Y - ny) * srcH * blinkAmount * 0.82f * eyeWeight;
 
                 // TTS mouth articulation by deforming the original lip pixels, never painting
