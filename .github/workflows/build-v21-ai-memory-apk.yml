@@ -1,0 +1,93 @@
+name: Build Galaxy AI Fold7 v21.0 AI Memory APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v21-ai-memory
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate durable AIDI memory gateway
+        run: |
+          python3 -m py_compile aidi_gateway/server.py
+          rm -f /tmp/aidi-memory-test.db /tmp/aidi-memory-test.db-wal /tmp/aidi-memory-test.db-shm
+          AIDI_GATEWAY_PORT=8766 \
+          AIDI_MEMORY_DB=/tmp/aidi-memory-test.db \
+          AIDI_LLM_ENABLED=0 \
+          python3 aidi_gateway/server.py > /tmp/aidi-memory-gateway.log 2>&1 &
+          GATEWAY_PID=$!
+          trap 'kill $GATEWAY_PID || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8766/health >/tmp/aidi-v21-health.json; then break; fi
+            sleep 0.2
+          done
+          cat /tmp/aidi-v21-health.json
+          for i in 1 2 3; do
+            curl -fsS -X POST http://127.0.0.1:8766/api/v1/scene/analyze \
+              -H 'Content-Type: application/json' \
+              -H 'X-AIDI-Protocol: scene-v1' \
+              -d '{"device":"GalaxyFold7","app_version":"21.0","state":{"battery":76,"charging":false,"fold_state":"main","hour":14,"motion_level":0.12},"profile":{"decision_count":2,"favorite_scene":"living_continuum","favorite_scene_count":2}}' \
+              >/tmp/aidi-v21-decision.json
+          done
+          cat /tmp/aidi-v21-decision.json
+          curl -fsS http://127.0.0.1:8766/health >/tmp/aidi-v21-health-after.json
+          python3 - <<'PY'
+          import json, sqlite3
+          with open('/tmp/aidi-v21-health-after.json', encoding='utf-8') as fh:
+              health=json.load(fh)
+          assert health['status']=='ok'
+          assert health['version']=='0.21'
+          assert health['memory_backend']=='sqlite'
+          assert int(health['memory_devices']) == 1
+          db=sqlite3.connect('/tmp/aidi-memory-test.db')
+          row=db.execute('SELECT decision_count,last_scene,favorite_scene,favorite_scene_count FROM device_memory WHERE device=?', ('GalaxyFold7',)).fetchone()
+          assert row is not None, 'device memory row missing'
+          assert int(row[0]) >= 3, row
+          assert row[1] == 'living_continuum', row
+          assert int(row[3]) >= 3, row
+          print('memory-row', row)
+          PY
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v21.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify AI Memory APK metadata, permission and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v21.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v21.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='210'"
+          echo "$BADGING" | grep -q "versionName='21.0'"
+          $ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Fold7_LiveWallpaper_v21.0.apk | grep -q 'android.permission.INTERNET'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v21.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v21.0.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v21.0
+          path: Galaxy_AI_Fold7_LiveWallpaper_v21.0.apk
+          if-no-files-found: error
+          retention-days: 30
