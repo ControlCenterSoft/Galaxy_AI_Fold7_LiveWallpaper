@@ -26,6 +26,10 @@ public final class HttpAIDIGatewayTransport implements AIDIGatewayTransport {
 
     @Override
     public SceneDecision request(AIState state) throws Exception {
+        if (state == null) throw new IllegalArgumentException("state == null");
+
+        String requestId = AIDIConfig.CLIENT_NAME + "-"
+                + state.sequence + "-" + Long.toHexString(state.capturedAtMs);
         URL url = new URL(endpoint);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         try {
@@ -33,12 +37,17 @@ public final class HttpAIDIGatewayTransport implements AIDIGatewayTransport {
             connection.setReadTimeout(AIDIConfig.READ_TIMEOUT_MS);
             connection.setRequestMethod("POST");
             connection.setDoOutput(true);
+            connection.setUseCaches(false);
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
             connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("Cache-Control", "no-store");
             connection.setRequestProperty("X-AIDI-Protocol", AIDIConfig.PROTOCOL_VERSION);
             connection.setRequestProperty("X-AIDI-Client", AIDIConfig.CLIENT_NAME);
+            connection.setRequestProperty("X-AIDI-Request-Id", requestId);
 
-            byte[] body = state.toJson().toString().getBytes(StandardCharsets.UTF_8);
+            JSONObject payload = state.toJson();
+            payload.put("request_id", requestId);
+            byte[] body = payload.toString().getBytes(StandardCharsets.UTF_8);
             if (body.length > AIDIConfig.MAX_REQUEST_BYTES) {
                 throw new IllegalStateException("AIDI request exceeds limit");
             }
@@ -50,6 +59,15 @@ public final class HttpAIDIGatewayTransport implements AIDIGatewayTransport {
             int code = connection.getResponseCode();
             if (code < 200 || code >= 300) {
                 throw new IllegalStateException("AIDI HTTP " + code);
+            }
+
+            String responseProtocol = connection.getHeaderField("X-AIDI-Protocol");
+            if (responseProtocol != null && !AIDIConfig.PROTOCOL_VERSION.equals(responseProtocol)) {
+                throw new IllegalStateException("AIDI protocol mismatch");
+            }
+            String echoedRequestId = connection.getHeaderField("X-AIDI-Request-Id");
+            if (echoedRequestId != null && !requestId.equals(echoedRequestId)) {
+                throw new IllegalStateException("AIDI request id mismatch");
             }
 
             byte[] response = readBounded(connection.getInputStream(), AIDIConfig.MAX_RESPONSE_BYTES);
