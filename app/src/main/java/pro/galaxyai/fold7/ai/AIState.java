@@ -14,16 +14,25 @@ public final class AIState {
     public final int displayHeightPx;
     public final long capturedAtMs;
     public final long sequence;
+    public final AIProfileMemory.ProfileSnapshot profile;
 
     public AIState(int batteryPercent, boolean charging, boolean mainDisplay,
                    int hourOfDay, float motionLevel) {
         this(batteryPercent, charging, mainDisplay, hourOfDay, motionLevel,
-                0, 0, System.currentTimeMillis(), 0L);
+                0, 0, System.currentTimeMillis(), 0L, null);
     }
 
     public AIState(int batteryPercent, boolean charging, boolean mainDisplay,
                    int hourOfDay, float motionLevel, int displayWidthPx,
                    int displayHeightPx, long capturedAtMs, long sequence) {
+        this(batteryPercent, charging, mainDisplay, hourOfDay, motionLevel,
+                displayWidthPx, displayHeightPx, capturedAtMs, sequence, null);
+    }
+
+    private AIState(int batteryPercent, boolean charging, boolean mainDisplay,
+                    int hourOfDay, float motionLevel, int displayWidthPx,
+                    int displayHeightPx, long capturedAtMs, long sequence,
+                    AIProfileMemory.ProfileSnapshot profile) {
         this.batteryPercent = Math.max(0, Math.min(100, batteryPercent));
         this.charging = charging;
         this.mainDisplay = mainDisplay;
@@ -33,6 +42,22 @@ public final class AIState {
         this.displayHeightPx = Math.max(0, displayHeightPx);
         this.capturedAtMs = Math.max(0L, capturedAtMs);
         this.sequence = Math.max(0L, sequence);
+        this.profile = profile;
+    }
+
+    public AIState withProfile(AIProfileMemory.ProfileSnapshot profile) {
+        return new AIState(
+                batteryPercent,
+                charging,
+                mainDisplay,
+                hourOfDay,
+                motionLevel,
+                displayWidthPx,
+                displayHeightPx,
+                capturedAtMs,
+                sequence,
+                profile
+        );
     }
 
     public JSONObject toJson() throws JSONException {
@@ -51,10 +76,11 @@ public final class AIState {
 
         JSONObject root = new JSONObject();
         root.put("device", "GalaxyFold7");
-        root.put("app_version", "20.0");
+        root.put("app_version", "21.0");
         root.put("captured_at_ms", capturedAtMs);
         root.put("state_sequence", sequence);
         root.put("state", state);
+        if (profile != null) root.put("profile", profile.toJson());
         return root;
     }
 }
