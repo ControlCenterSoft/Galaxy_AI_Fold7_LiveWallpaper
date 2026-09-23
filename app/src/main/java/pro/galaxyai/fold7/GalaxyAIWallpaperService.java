@@ -12,26 +12,44 @@ import pro.galaxyai.fold7.engine.*;
 
 public class GalaxyAIWallpaperService extends WallpaperService {
 
-    private static final String PREFS_V9 = "personal_universe_v9";
+    // Reuse the v9 preference namespace so v10 upgrades preserve the user's universe.
+    private static final String PREFS_UNIVERSE = "personal_universe_v9";
     private static final String KEY_SCENE_SEED = "scene_seed";
+    private static final String KEY_EVOLUTION_EPOCH = "v10_evolution_epoch";
 
     @Override
     public Engine onCreateEngine() {
-        return new V9Engine(getOrCreateUniverseSeed());
+        UniverseIdentity identity = loadUniverseIdentity();
+        return new V10Engine(identity.seed, identity.evolutionEpoch);
     }
 
-    private long getOrCreateUniverseSeed() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_V9, MODE_PRIVATE);
+    private UniverseIdentity loadUniverseIdentity() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_UNIVERSE, MODE_PRIVATE);
         long seed = prefs.getLong(KEY_SCENE_SEED, 0L);
         if (seed == 0L) {
             seed = new SecureRandom().nextLong();
             if (seed == 0L) seed = 1L;
-            prefs.edit().putLong(KEY_SCENE_SEED, seed).apply();
         }
-        return seed;
+
+        long epoch = prefs.getLong(KEY_EVOLUTION_EPOCH, 0L) + 1L;
+        prefs.edit()
+                .putLong(KEY_SCENE_SEED, seed)
+                .putLong(KEY_EVOLUTION_EPOCH, epoch)
+                .apply();
+        return new UniverseIdentity(seed, epoch);
     }
 
-    private class V9Engine extends Engine {
+    private static final class UniverseIdentity {
+        final long seed;
+        final long evolutionEpoch;
+
+        UniverseIdentity(long seed, long evolutionEpoch) {
+            this.seed = seed;
+            this.evolutionEpoch = evolutionEpoch;
+        }
+    }
+
+    private class V10Engine extends Engine {
         private final Handler handler = new Handler();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
@@ -42,18 +60,19 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private final GlowEngineV6 glow = new GlowEngineV6();
         private final HologramEngineV6 hologram = new HologramEngineV6();
         private final MotionControllerV6 motion = new MotionControllerV6();
-        private final PersonalUniverseControllerV9 universe;
+        private final AutonomousUniverseControllerV10 universe;
         private boolean visible;
+        private long frameDelayMillis = 37L;
 
-        V9Engine(long universeSeed) {
-            universe = new PersonalUniverseControllerV9(universeSeed);
+        V10Engine(long universeSeed, long evolutionEpoch) {
+            universe = new AutonomousUniverseControllerV10(universeSeed, evolutionEpoch);
         }
 
         private final Runnable loop = new Runnable() {
             @Override
             public void run() {
                 render();
-                if (visible) handler.postDelayed(this, 33);
+                if (visible) handler.postDelayed(this, frameDelayMillis);
             }
         };
 
@@ -83,10 +102,12 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 FoldProfileManager.Mode mode = profile.detect(w, h);
                 boolean main = mode == FoldProfileManager.Mode.MAIN;
 
-                motion.update(0.033f);
+                float deltaSeconds = frameDelayMillis / 1000f;
+                motion.update(deltaSeconds);
                 fold.update(main);
                 camera.update(fold.getProgress());
-                universe.update(0.033f, main);
+                universe.update(deltaSeconds, main);
+                frameDelayMillis = universe.getFrameDelayMillis(main);
 
                 canvas.save();
                 canvas.translate(
@@ -111,8 +132,19 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                                 * universe.getPulseMultiplier()
                 );
                 avatar.draw(canvas, avatarX, avatarY, avatarSize);
-                hologram.draw(canvas, avatarX, avatarY, avatarSize, motion.getPulse());
-                particles.draw(canvas, avatarX, avatarY, avatarSize * 1.35f);
+                hologram.draw(
+                        canvas,
+                        avatarX,
+                        avatarY,
+                        avatarSize,
+                        motion.getPulse() * universe.getPulseMultiplier()
+                );
+                particles.draw(
+                        canvas,
+                        avatarX,
+                        avatarY,
+                        avatarSize * 1.35f * universe.getParticleMultiplier()
+                );
 
                 canvas.restore();
             } finally {
