@@ -1,0 +1,92 @@
+name: Build Galaxy AI Fold7 v35.0 Scrollable Settings Fix APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v35-scrollable-settings-fix
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v35 settings accessibility contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          activity = Path('app/src/main/java/pro/galaxyai/fold7/MainActivity.java').read_text()
+          gradle = Path('app/build.gradle').read_text()
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+
+          for token in [
+              'ScrollView',
+              'setFillViewport(true)',
+              'setOnApplyWindowInsetsListener',
+              'getSystemWindowInsetBottom',
+              'ПРИМЕНИТЬ ЖИВЫЕ ОБОИ',
+              'LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f'
+          ]:
+              assert token in activity, token
+
+          assert 'Expression Presence' not in activity
+          assert 'Fold continuity' not in activity
+          assert 'raw media' not in activity
+          assert 'Custom Aurora' not in activity
+          assert 'Style face' not in activity
+          assert "versionCode 350" in gradle
+          assert "versionName '35.0'" in gradle
+          assert 'Galaxy AI Fold7 v35' in manifest
+          assert 'android.permission.CAMERA' not in manifest
+          assert 'android.permission.RECORD_AUDIO' not in manifest
+          assert 'android.permission.ACCESS_FINE_LOCATION' not in manifest
+          PY
+
+      - name: Verify inherited AIDI gateway stack compiles
+        run: python3 -m py_compile aidi_gateway/*.py gateway_simulator/*.py
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v35.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify v35 APK metadata, permissions and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v35.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v35.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='350'"
+          echo "$BADGING" | grep -q "versionName='35.0'"
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Fold7_LiveWallpaper_v35.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v35.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v35.0.apk | tee Galaxy_AI_Fold7_LiveWallpaper_v35.0.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v35.0
+          path: |
+            Galaxy_AI_Fold7_LiveWallpaper_v35.0.apk
+            Galaxy_AI_Fold7_LiveWallpaper_v35.0.sha256
+          if-no-files-found: error
+          retention-days: 30
