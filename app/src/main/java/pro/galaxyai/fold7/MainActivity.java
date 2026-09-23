@@ -32,9 +32,16 @@ public class MainActivity extends Activity {
         root.setPadding(36, 36, 36, 36);
 
         TextView title = new TextView(this);
-        title.setText("Galaxy AI Fold7 v30 — Personalized Avatar");
+        title.setText("Galaxy AI Fold7 v31 — Adaptive Portrait Presence");
         title.setTextSize(21f);
         root.addView(title, fullWidth());
+
+        TextView portraitInfo = new TextView(this);
+        portraitInfo.setText("v31 portrait renderer: dimensional face shading, natural eyelids and lips, iris highlights, "
+                + "subtle gaze/head motion and a larger Fold-aware composition. All portrait motion is generated locally.");
+        portraitInfo.setTextSize(14f);
+        portraitInfo.setPadding(0, 12, 0, 12);
+        root.addView(portraitInfo, fullWidth());
 
         profileStatus = new TextView(this);
         profileStatus.setTextSize(15f);
@@ -72,7 +79,7 @@ public class MainActivity extends Activity {
         TextView privacy = new TextView(this);
         privacy.setText("Privacy: personal appearance and voice parameters are stored locally. "
                 + "AIDI receives only bounded non-sensitive preference values; no local profile id, "
-                + "name, account data, microphone audio or raw media is sent.");
+                + "name, account data, microphone audio, camera frames or raw media is sent.");
         privacy.setTextSize(14f);
         privacy.setPadding(0, 20, 0, 10);
         root.addView(privacy, fullWidth());
