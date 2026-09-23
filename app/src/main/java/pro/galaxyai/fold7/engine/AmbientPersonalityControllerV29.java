@@ -28,6 +28,8 @@ public final class AmbientPersonalityControllerV29 implements TextToSpeech.OnIni
     private boolean ttsReady;
     private String lastEmotion = "";
     private long lastSpokenAt;
+    private float desiredPitch = 1.02f;
+    private float desiredRate = 0.92f;
 
     public AmbientPersonalityControllerV29(Context context) {
         prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -40,10 +42,19 @@ public final class AmbientPersonalityControllerV29 implements TextToSpeech.OnIni
             int result = tts.setLanguage(Locale.getDefault());
             ttsReady = result != TextToSpeech.LANG_MISSING_DATA
                     && result != TextToSpeech.LANG_NOT_SUPPORTED;
-            tts.setSpeechRate(0.92f);
-            tts.setPitch(1.02f);
+            if (ttsReady) applyVoiceManner(desiredPitch, desiredRate);
         } else {
             ttsReady = false;
+        }
+    }
+
+    /** v30 extension: bounded local voice manner, still without microphone or cloud audio. */
+    public void applyVoiceManner(float pitch, float rate) {
+        desiredPitch = clamp(pitch, 0.75f, 1.30f);
+        desiredRate = clamp(rate, 0.70f, 1.25f);
+        if (ttsReady) {
+            tts.setPitch(desiredPitch);
+            tts.setSpeechRate(desiredRate);
         }
     }
 
@@ -124,5 +135,9 @@ public final class AmbientPersonalityControllerV29 implements TextToSpeech.OnIni
 
     private static int clampLevel(int level) {
         return Math.max(LEVEL_QUIET, Math.min(LEVEL_EXPRESSIVE, level));
+    }
+
+    private static float clamp(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
     }
 }
