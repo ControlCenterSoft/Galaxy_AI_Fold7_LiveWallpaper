@@ -23,7 +23,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
     @Override
     public Engine onCreateEngine() {
         UniverseIdentity identity = loadUniverseIdentity();
-        return new V23Engine(identity.seed, identity.evolutionEpoch);
+        return new V27Engine(identity.seed, identity.evolutionEpoch);
     }
 
     private UniverseIdentity loadUniverseIdentity() {
@@ -52,13 +52,13 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         }
     }
 
-    private class V23Engine extends Engine {
+    private class V27Engine extends Engine {
         private final Handler handler = new Handler();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
         private final FoldTransitionController fold = new FoldTransitionController();
         private final GalaxySceneRendererV6 galaxy = new GalaxySceneRendererV6();
-        private final AIAvatarRendererV6 avatar = new AIAvatarRendererV6();
+        private final AIAvatarRendererV27 avatar = new AIAvatarRendererV27();
         private final ParticleEngineV6 particles = new ParticleEngineV6();
         private final GlowEngineV6 glow = new GlowEngineV6();
         private final HologramEngineV6 hologram = new HologramEngineV6();
@@ -73,7 +73,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private boolean visible;
         private long frameDelayMillis = 37L;
 
-        V23Engine(long universeSeed, long evolutionEpoch) {
+        V27Engine(long universeSeed, long evolutionEpoch) {
             universe = new MemoryAwareUniverseControllerV21(universeSeed, evolutionEpoch);
         }
 
@@ -145,6 +145,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 personality.setDecision(aidi.getDecision());
                 universe.update(deltaSeconds, main);
                 personality.update(deltaSeconds);
+                avatar.update(aidi.getDecision(), deltaSeconds, main);
                 frameDelayMillis = universe.getFrameDelayMillis(main);
 
                 canvas.save();
@@ -157,35 +158,38 @@ public class GalaxyAIWallpaperService extends WallpaperService {
 
                 galaxy.draw(canvas, w, h, main);
 
-                float avatarX = (main ? w * 0.68f : w * 0.62f)
+                // v27 composition: the living face is the hero element; galaxy/hologram stay behind it.
+                float avatarX = (main ? w * 0.56f : w * 0.50f)
                         + w * (universe.getAvatarHorizontalBias() + personality.getHorizontalDrift());
-                float avatarY = h * (0.46f + universe.getAvatarVerticalBias()
+                float avatarY = h * (0.43f + universe.getAvatarVerticalBias()
                         + personality.getVerticalDrift());
-                float baseAvatarSize = main ? Math.min(w, h) * 0.44f : w * 0.38f;
+                float baseAvatarSize = main
+                        ? Math.min(w, h) * 0.72f
+                        : w * 0.82f;
                 float avatarSize = baseAvatarSize * personality.getAvatarScale();
 
                 glow.draw(
                         canvas,
                         avatarX,
                         avatarY,
-                        avatarSize * (0.90f + motion.getPulse() * 0.08f)
+                        avatarSize * (0.76f + motion.getPulse() * 0.05f)
                                 * universe.getPulseMultiplier()
                                 * personality.getGlowMultiplier()
                 );
-                avatar.draw(canvas, avatarX, avatarY, avatarSize);
                 hologram.draw(
                         canvas,
                         avatarX,
                         avatarY,
-                        avatarSize,
+                        avatarSize * 1.04f,
                         motion.getPulse() * universe.getPulseMultiplier()
                                 * personality.getHologramMultiplier()
                 );
+                avatar.draw(canvas, avatarX, avatarY, avatarSize);
                 particles.draw(
                         canvas,
                         avatarX,
                         avatarY,
-                        avatarSize * 1.35f * universe.getParticleMultiplier()
+                        avatarSize * 1.08f * universe.getParticleMultiplier()
                                 * personality.getAuraParticleMultiplier()
                 );
 
