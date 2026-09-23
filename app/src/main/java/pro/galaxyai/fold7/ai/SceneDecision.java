@@ -36,7 +36,7 @@ public final class SceneDecision {
                          float verticalBias, float avatarPresence, float serenity,
                          float curiosity, float focus, long ttlSeconds, String source) {
         this.sceneName = sceneName == null ? "continuum" : sceneName;
-        this.avatarState = avatarState == null ? "calm" : avatarState;
+        this.avatarState = normalizeAvatarState(avatarState);
         this.energy = clamp(energy, 0f, 1f);
         this.particleMultiplier = clamp(particleMultiplier, 0.45f, 1.8f);
         this.pulseMultiplier = clamp(pulseMultiplier, 0.6f, 1.5f);
@@ -66,7 +66,7 @@ public final class SceneDecision {
                 ? scene.optString("name", "continuum")
                 : root.optString("scene", "continuum");
         String avatarState = avatar != null
-                ? avatar.optString("state", "calm")
+                ? avatar.optString("emotion", avatar.optString("state", "calm"))
                 : root.optString("avatar", "calm");
 
         double energy = scene != null ? scene.optDouble("energy", 0.45) : root.optDouble("energy", 0.45);
@@ -87,31 +87,49 @@ public final class SceneDecision {
                 (float) curiosity, (float) focus, ttl, "aidi-gateway");
     }
 
+    private static String normalizeAvatarState(String state) {
+        if (state == null) return "calm";
+        String value = state.trim().toLowerCase();
+        if ("aware".equals(value)) return "thinking";
+        if ("resting".equals(value)) return "sleep";
+        if ("calm".equals(value) || "focused".equals(value) || "thinking".equals(value)
+                || "happy".equals(value) || "sleep".equals(value)) return value;
+        return "calm";
+    }
+
     private static float defaultPresence(String state) {
+        state = normalizeAvatarState(state);
         if ("focused".equals(state)) return 0.82f;
-        if ("aware".equals(state)) return 0.72f;
-        if ("resting".equals(state)) return 0.38f;
+        if ("thinking".equals(state)) return 0.72f;
+        if ("happy".equals(state)) return 0.86f;
+        if ("sleep".equals(state)) return 0.38f;
         return 0.56f;
     }
 
     private static float defaultSerenity(String state) {
-        if ("resting".equals(state)) return 0.92f;
+        state = normalizeAvatarState(state);
+        if ("sleep".equals(state)) return 0.92f;
         if ("calm".equals(state)) return 0.80f;
         if ("focused".equals(state)) return 0.42f;
+        if ("happy".equals(state)) return 0.72f;
         return 0.58f;
     }
 
     private static float defaultCuriosity(String state) {
-        if ("aware".equals(state)) return 0.74f;
+        state = normalizeAvatarState(state);
+        if ("thinking".equals(state)) return 0.78f;
         if ("focused".equals(state)) return 0.62f;
-        if ("resting".equals(state)) return 0.18f;
+        if ("happy".equals(state)) return 0.58f;
+        if ("sleep".equals(state)) return 0.18f;
         return 0.38f;
     }
 
     private static float defaultFocus(String state) {
+        state = normalizeAvatarState(state);
         if ("focused".equals(state)) return 0.92f;
-        if ("aware".equals(state)) return 0.66f;
-        if ("resting".equals(state)) return 0.20f;
+        if ("thinking".equals(state)) return 0.66f;
+        if ("happy".equals(state)) return 0.46f;
+        if ("sleep".equals(state)) return 0.20f;
         return 0.44f;
     }
 
