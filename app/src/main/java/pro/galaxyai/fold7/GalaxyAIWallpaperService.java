@@ -1,20 +1,37 @@
 package pro.galaxyai.fold7;
 
+import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.os.Handler;
 import android.service.wallpaper.WallpaperService;
 import android.view.SurfaceHolder;
 
+import java.security.SecureRandom;
+
 import pro.galaxyai.fold7.engine.*;
 
 public class GalaxyAIWallpaperService extends WallpaperService {
 
+    private static final String PREFS_V9 = "personal_universe_v9";
+    private static final String KEY_SCENE_SEED = "scene_seed";
+
     @Override
     public Engine onCreateEngine() {
-        return new V6Engine();
+        return new V9Engine(getOrCreateUniverseSeed());
     }
 
-    private class V6Engine extends Engine {
+    private long getOrCreateUniverseSeed() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_V9, MODE_PRIVATE);
+        long seed = prefs.getLong(KEY_SCENE_SEED, 0L);
+        if (seed == 0L) {
+            seed = new SecureRandom().nextLong();
+            if (seed == 0L) seed = 1L;
+            prefs.edit().putLong(KEY_SCENE_SEED, seed).apply();
+        }
+        return seed;
+    }
+
+    private class V9Engine extends Engine {
         private final Handler handler = new Handler();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
@@ -25,7 +42,12 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private final GlowEngineV6 glow = new GlowEngineV6();
         private final HologramEngineV6 hologram = new HologramEngineV6();
         private final MotionControllerV6 motion = new MotionControllerV6();
+        private final PersonalUniverseControllerV9 universe;
         private boolean visible;
+
+        V9Engine(long universeSeed) {
+            universe = new PersonalUniverseControllerV9(universeSeed);
+        }
 
         private final Runnable loop = new Runnable() {
             @Override
@@ -64,21 +86,30 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 motion.update(0.033f);
                 fold.update(main);
                 camera.update(fold.getProgress());
+                universe.update(0.033f, main);
 
                 canvas.save();
                 canvas.translate(
                         camera.getOffsetX() + motion.getParallaxX(),
                         camera.getOffsetY() + motion.getParallaxY()
                 );
-                canvas.scale(camera.getZoom(), camera.getZoom(), w / 2f, h / 2f);
+                float sceneScale = camera.getZoom() * universe.getSceneScale();
+                canvas.scale(sceneScale, sceneScale, w / 2f, h / 2f);
 
                 galaxy.draw(canvas, w, h, main);
 
-                float avatarX = main ? w * 0.68f : w * 0.62f;
-                float avatarY = h * 0.46f;
+                float avatarX = (main ? w * 0.68f : w * 0.62f)
+                        + w * universe.getAvatarHorizontalBias();
+                float avatarY = h * (0.46f + universe.getAvatarVerticalBias());
                 float avatarSize = main ? Math.min(w, h) * 0.44f : w * 0.38f;
 
-                glow.draw(canvas, avatarX, avatarY, avatarSize * (0.90f + motion.getPulse() * 0.08f));
+                glow.draw(
+                        canvas,
+                        avatarX,
+                        avatarY,
+                        avatarSize * (0.90f + motion.getPulse() * 0.08f)
+                                * universe.getPulseMultiplier()
+                );
                 avatar.draw(canvas, avatarX, avatarY, avatarSize);
                 hologram.draw(canvas, avatarX, avatarY, avatarSize, motion.getPulse());
                 particles.draw(canvas, avatarX, avatarY, avatarSize * 1.35f);
