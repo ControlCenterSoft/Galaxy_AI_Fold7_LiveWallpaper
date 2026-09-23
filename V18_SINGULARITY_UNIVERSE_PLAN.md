@@ -22,3 +22,7 @@ Release track after v17 Continuum Universe.
 ## Branch
 
 release/v18-singularity-universe
+
+## Build status
+
+CI trigger commit created after workflow registration.
