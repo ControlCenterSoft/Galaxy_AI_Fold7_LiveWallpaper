@@ -15,3 +15,7 @@ Release track after v18 Singularity Universe.
 3. APK signature verification passes.
 4. Upload Galaxy_AI_Fold7_LiveWallpaper_v19.0.apk.
 5. Print and verify SHA-256.
+
+## Build status
+
+CI trigger commit created after workflow registration.
