@@ -1,0 +1,131 @@
+name: Build Galaxy AI Fold7 v32.0 Expression Presence APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v32-expression-presence
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v32 expression presence contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          controller = Path('app/src/main/java/pro/galaxyai/fold7/engine/PortraitPresenceControllerV32.java').read_text()
+          service = Path('app/src/main/java/pro/galaxyai/fold7/GalaxyAIWallpaperService.java').read_text()
+          activity = Path('app/src/main/java/pro/galaxyai/fold7/MainActivity.java').read_text()
+          gradle = Path('app/build.gradle').read_text()
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+          plan = Path('V32_EXPRESSION_PRESENCE_PLAN.md').read_text()
+          for token in ['getScaleMultiplier', 'getVerticalShift', 'getHorizontalShift', 'getGlowMultiplier', 'getParticleMultiplier', 'getSuggestedFrameDelayMillis']:
+              assert token in controller, token
+          for token in ['calm', 'focused', 'thinking', 'happy', 'sleep']:
+              assert token in controller, token
+          assert 'PortraitPresenceControllerV32' in service
+          assert 'V32Engine' in service
+          assert 'portraitPresence.update' in service
+          assert 'Expression Presence Engine' in activity
+          assert "versionCode 320" in gradle
+          assert "versionName '32.0'" in gradle
+          assert 'Galaxy AI Fold7 v32' in manifest
+          assert 'android.permission.CAMERA' not in manifest
+          assert 'android.permission.RECORD_AUDIO' not in manifest
+          assert 'android.permission.ACCESS_FINE_LOCATION' not in manifest
+          assert 'No camera, microphone, biometric, location or raw media input' in plan
+          PY
+
+      - name: Run v32 JVM bounds and transition test
+        run: |
+          cat >/tmp/PortraitPresenceControllerV32Test.java <<'JAVA'
+          import pro.galaxyai.fold7.engine.PortraitPresenceControllerV32;
+
+          public final class PortraitPresenceControllerV32Test {
+              private static void require(boolean ok, String message) {
+                  if (!ok) throw new AssertionError(message);
+              }
+
+              public static void main(String[] args) {
+                  PortraitPresenceControllerV32 c = new PortraitPresenceControllerV32();
+                  for (int i = 0; i < 300; i++) {
+                      c.update("focused", 0.94f, 0.96f, 0.42f, 0.78f, 0.86f, false, 0.037f);
+                  }
+                  require(c.getScaleMultiplier() >= 0.90f && c.getScaleMultiplier() <= 1.12f, "scale bounds");
+                  require(c.getVerticalShift() >= -0.030f && c.getVerticalShift() <= 0.020f, "vertical bounds");
+                  require(c.getHorizontalShift() >= -0.006f && c.getHorizontalShift() <= 0.006f, "horizontal bounds");
+                  require(c.getGlowMultiplier() >= 0.72f && c.getGlowMultiplier() <= 1.18f, "glow bounds");
+                  require(c.getParticleMultiplier() >= 0.55f && c.getParticleMultiplier() <= 1.16f, "particle bounds");
+                  require(c.getAttention() > 0.70f, "focused attention");
+                  require(c.getSuggestedFrameDelayMillis(45L) == 32L, "focused cadence");
+
+                  float before = c.getScaleMultiplier();
+                  c.update("sleep", 0.30f, 0.10f, 0.10f, 0.15f, 0.60f, true, 0.10f);
+                  require(Math.abs(c.getScaleMultiplier() - before) < 0.04f, "transition continuity");
+                  require(c.getSuggestedFrameDelayMillis(16L) == 50L, "sleep cadence");
+
+                  for (int i = 0; i < 300; i++) {
+                      c.update("sleep", 0.30f, 0.10f, 0.10f, 0.15f, 0.60f, true, 0.050f);
+                  }
+                  require(c.getAttention() < 0.25f, "sleep attention");
+                  require(c.getParticleMultiplier() < 0.70f, "sleep particles");
+                  System.out.println("v32 presence controller PASS");
+              }
+          }
+          JAVA
+          mkdir -p /tmp/v32-test
+          javac -d /tmp/v32-test \
+            app/src/main/java/pro/galaxyai/fold7/engine/PortraitPresenceControllerV32.java \
+            /tmp/PortraitPresenceControllerV32Test.java
+          java -cp /tmp/v32-test PortraitPresenceControllerV32Test
+
+      - name: Verify inherited AIDI gateway stack compiles
+        run: python3 -m py_compile aidi_gateway/*.py gateway_simulator/*.py
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v32.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify Expression Presence APK metadata, permissions and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v32.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v32.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='320'"
+          echo "$BADGING" | grep -q "versionName='32.0'"
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Fold7_LiveWallpaper_v32.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v32.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v32.0.apk | tee Galaxy_AI_Fold7_LiveWallpaper_v32.0.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v32.0
+          path: |
+            Galaxy_AI_Fold7_LiveWallpaper_v32.0.apk
+            Galaxy_AI_Fold7_LiveWallpaper_v32.0.sha256
+          if-no-files-found: error
+          retention-days: 30
