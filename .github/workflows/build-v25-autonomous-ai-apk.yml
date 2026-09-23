@@ -1,0 +1,166 @@
+name: Build Galaxy AI Fold7 v25.0 Autonomous AI APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v25-autonomous-ai-universe
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v25 autonomous policy sources
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          policy = Path('aidi_gateway/autonomous_policy.py').read_text()
+          personality = Path('aidi_gateway/personality.py').read_text()
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+          gradle = Path('app/build.gradle').read_text()
+          for token in ['autonomy-v1', 'learning', 'adaptive', 'autonomous', 'constrained', 'recovery']:
+              assert token in policy, token
+          assert 'apply_autonomy' in personality
+          assert "versionCode 250" in gradle
+          assert "versionName '25.0'" in gradle
+          assert 'android.permission.INTERNET' in manifest
+          for forbidden in ['android.permission.CAMERA', 'android.permission.RECORD_AUDIO',
+                            'ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION']:
+              assert forbidden not in manifest, forbidden
+          PY
+
+      - name: Test bounded autonomy modes
+        env:
+          PYTHONPATH: aidi_gateway
+        run: |
+          python3 -m py_compile aidi_gateway/server.py aidi_gateway/memory.py aidi_gateway/context.py aidi_gateway/personality.py aidi_gateway/hybrid_router.py aidi_gateway/autonomous_policy.py
+          python3 - <<'PY'
+          from autonomous_policy import apply_autonomy
+
+          def base(source='aidi-fast-path-v24', tier='deterministic', samples=0,
+                   recall=0.0, context=0.0, battery=70, charging=False):
+              payload = {
+                  'state': {'battery': battery, 'charging': charging},
+                  'profile': {'samples': samples},
+              }
+              decision = {
+                  'source': source,
+                  'ttl': 900,
+                  'scene': {'energy': 0.5},
+                  'memory': {'recall_score': recall},
+                  'context': {'confidence': context},
+                  'provenance': {'tier': tier},
+              }
+              return payload, decision
+
+          p, d = base(samples=1)
+          out = apply_autonomy(p, d)
+          assert out['autonomy']['mode'] == 'learning'
+          assert out['ttl'] <= 120
+
+          p, d = base(samples=20, recall=0.95, context=0.9)
+          out = apply_autonomy(p, d)
+          assert out['autonomy']['mode'] == 'autonomous'
+          assert out['autonomy']['confidence'] >= 0.78
+          assert out['ttl'] == 900
+
+          p, d = base(samples=20, recall=0.95, context=0.9, battery=10)
+          out = apply_autonomy(p, d)
+          assert out['autonomy']['mode'] == 'constrained'
+          assert out['autonomy']['safety_override'] is True
+          assert out['ttl'] <= 180
+
+          p, d = base(source='aidi-router-fallback', samples=20)
+          out = apply_autonomy(p, d)
+          assert out['autonomy']['mode'] == 'recovery'
+          assert out['ttl'] == 60
+
+          p, d = base(tier='cloud', samples=20, recall=0.95, context=0.9)
+          out = apply_autonomy(p, d)
+          assert out['autonomy']['review_after_seconds'] <= 600
+          assert out['autonomy']['raw_media'] is False
+          PY
+
+      - name: Integration test AIDI Gateway v25 autonomous envelope
+        env:
+          PYTHONPATH: aidi_gateway
+          AIDI_GATEWAY_HOST: 127.0.0.1
+          AIDI_GATEWAY_PORT: '8770'
+          AIDI_QDRANT_URL: ''
+          AIDI_OLLAMA_URL: http://127.0.0.1:9/api/chat
+          AIDI_CLOUD_ENABLED: '0'
+          AIDI_LLM_CACHE_SECONDS: '900'
+        run: |
+          python3 aidi_gateway/server.py > /tmp/aidi-v25.log 2>&1 &
+          GATEWAY_PID=$!
+          trap 'kill $GATEWAY_PID || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8770/health >/tmp/aidi-v25-health.json; then break; fi
+            sleep 0.2
+          done
+          REQUEST_ID='ci-v25-autonomy-42'
+          curl -fsS -o /tmp/aidi-v25-response.json \
+            -X POST http://127.0.0.1:8770/api/v1/scene/analyze \
+            -H 'Content-Type: application/json' \
+            -H 'X-AIDI-Protocol: scene-v1' \
+            -H "X-AIDI-Request-Id: $REQUEST_ID" \
+            -d '{"device":"GalaxyFold7-ci","app_version":"25.0","request_id":"ci-v25-autonomy-42","state":{"battery":74,"charging":false,"fold_state":"main","hour":19,"motion_level":0.18,"display":{"width_px":2176,"height_px":1812,"orientation":"landscape"}},"profile":{"schema":"profile-v2","samples":18,"average_energy":0.46,"average_particles":0.98,"personality":{"presence":0.74,"serenity":0.72,"curiosity":0.61,"focus":0.69}},"context":{"schema":"context-v1","light":"normal","semantic_label":"normal_light_environment","confidence":0.88,"source":"android-light-sensor","raw_media":false}}'
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          body = json.loads(Path('/tmp/aidi-v25-response.json').read_text())
+          assert body['request_id'] == 'ci-v25-autonomy-42'
+          autonomy = body['autonomy']
+          assert autonomy['schema'] == 'autonomy-v1'
+          assert autonomy['mode'] in ('learning', 'adaptive', 'autonomous', 'constrained', 'recovery')
+          assert 0.0 <= float(autonomy['confidence']) <= 1.0
+          assert autonomy['raw_media'] is False
+          assert 60 <= int(body['ttl']) <= 900
+          assert body['context']['raw_media'] is False
+          assert body['provenance']['schema'] == 'provenance-v1'
+          PY
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v25.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify Autonomous AI APK metadata, permissions and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v25.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v25.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='250'"
+          echo "$BADGING" | grep -q "versionName='25.0'"
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Fold7_LiveWallpaper_v25.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v25.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v25.0.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v25.0
+          path: Galaxy_AI_Fold7_LiveWallpaper_v25.0.apk
+          if-no-files-found: error
+          retention-days: 30
