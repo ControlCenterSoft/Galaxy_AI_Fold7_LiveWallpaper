@@ -48,7 +48,7 @@ public class MainActivity extends Activity {
                 ScrollView.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText("Galaxy AI Fold7 v45 — Деформируемый живой портрет");
+        title.setText("Galaxy AI Fold7 v46 — Живой внимательный взгляд");
         title.setTextSize(21f);
         root.addView(title, fullWidth());
 
@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
         root.addView(contextOff, buttonParams());
 
         TextView portraitInfo = new TextView(this);
-        portraitInfo.setText("v45 делает портрет не жёсткой картинкой, а локально деформируемым живым слоем: голова и лицо имеют собственное микродвижение относительно плеч и фона, дыхание деформирует нижнюю часть портрета, моргание выполняется сжатием исходных пикселей глаз, а русская TTS-речь двигает исходные пиксели губ. Нарисованные овалы глаз, маски лица и синтетический рот поверх изображения не используются. Движения v44, реакции на касание, Fold continuity и автономные жесты сохранены.");
+        portraitInfo.setText("v46 добавляет внимательный живой взгляд поверх деформируемого портрета v45: микросаккады и плавное направление взгляда зависят от AI-состояния, а при касании глаза мягко смещаются в сторону точки взаимодействия. Используется только деформация исходных пикселей области глаз — без нарисованных зрачков, овалов или масок. Моргание, движение головы, дыхание, русская TTS-анимация губ, жесты и Fold continuity сохранены.");
         portraitInfo.setTextSize(14f);
         portraitInfo.setPadding(0, dp(8), 0, dp(10));
         root.addView(portraitInfo, fullWidth());
@@ -137,7 +137,7 @@ public class MainActivity extends Activity {
         root.addView(voiceOff, buttonParams());
 
         TextView privacy = new TextView(this);
-        privacy.setText("Приватность: деформация портрета, движение, жесты, касания и синхронизация губ выполняются только локально в памяти. Для lip-sync используются события локального TTS и числовой envelope; микрофон и аудиозапись не читаются. Камера, точная геопозиция и исходные медиа не используются и не передаются.");
+        privacy.setText("Приватность: направление взгляда вычисляется локально только из AI-состояния и координат касания. Деформация портрета, движение, жесты и lip-sync также выполняются локально в памяти. Камера, распознавание лица, микрофон, запись звука, точная геопозиция и исходные медиа не используются и не передаются.");
         privacy.setTextSize(13f);
         privacy.setPadding(0, dp(14), 0, dp(18));
         root.addView(privacy, fullWidth());
