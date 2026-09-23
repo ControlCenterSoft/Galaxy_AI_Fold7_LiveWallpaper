@@ -32,13 +32,14 @@ public class MainActivity extends Activity {
         root.setPadding(36, 36, 36, 36);
 
         TextView title = new TextView(this);
-        title.setText("Galaxy AI Fold7 v31 — Adaptive Portrait Presence");
+        title.setText("Galaxy AI Fold7 v32 — Expression Presence Engine");
         title.setTextSize(21f);
         root.addView(title, fullWidth());
 
         TextView portraitInfo = new TextView(this);
-        portraitInfo.setText("v31 portrait renderer: dimensional face shading, natural eyelids and lips, iris highlights, "
-                + "subtle gaze/head motion and a larger Fold-aware composition. All portrait motion is generated locally.");
+        portraitInfo.setText("v32 presence engine: smooth AIDI-driven attention, emotion-aware portrait scale and placement, "
+                + "adaptive glow/particles, Fold-aware prominence and low-activity sleep behavior. "
+                + "The v31 dimensional face, natural gaze, blink and head motion remain fully local.");
         portraitInfo.setTextSize(14f);
         portraitInfo.setPadding(0, 12, 0, 12);
         root.addView(portraitInfo, fullWidth());
