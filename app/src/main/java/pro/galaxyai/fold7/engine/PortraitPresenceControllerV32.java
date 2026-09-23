@@ -78,7 +78,11 @@ public final class PortraitPresenceControllerV32 {
         float targetHorizontal = (float) Math.sin(phase * 0.31f) * microAmplitude;
 
         float blend = 1f - (float) Math.exp(-dt * 4.2f);
-        scaleMultiplier = approach(scaleMultiplier, clamp(targetScale, 0.90f, 1.12f), blend);
+        scaleMultiplier = approachLimited(
+                scaleMultiplier,
+                clamp(targetScale, 0.90f, 1.12f),
+                blend,
+                Math.max(0.002f, dt * 0.26f));
         verticalShift = approach(verticalShift, clamp(targetVertical, -0.030f, 0.020f), blend);
         horizontalShift = approach(horizontalShift, clamp(targetHorizontal, -0.006f, 0.006f), blend);
         glowMultiplier = approach(glowMultiplier, clamp(targetGlow, 0.72f, 1.18f), blend);
@@ -129,6 +133,12 @@ public final class PortraitPresenceControllerV32 {
 
     private static float approach(float current, float target, float blend) {
         return current + (target - current) * clamp(blend, 0f, 1f);
+    }
+
+    private static float approachLimited(float current, float target, float blend, float maxDelta) {
+        float candidate = approach(current, target, blend);
+        float delta = clamp(candidate - current, -Math.abs(maxDelta), Math.abs(maxDelta));
+        return current + delta;
     }
 
     private static float clamp(float value, float min, float max) {
