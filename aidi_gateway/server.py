@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+import sqlite3
 import threading
 import time
 import urllib.request
@@ -12,6 +13,8 @@ PORT = int(os.environ.get("AIDI_GATEWAY_PORT", "8088"))
 OLLAMA_URL = os.environ.get("AIDI_OLLAMA_URL", "http://192.168.10.218:11434/api/chat")
 MODEL = os.environ.get("AIDI_OLLAMA_MODEL", "qwen3-coder:30b")
 LLM_CACHE_SECONDS = int(os.environ.get("AIDI_LLM_CACHE_SECONDS", "900"))
+LLM_ENABLED = os.environ.get("AIDI_LLM_ENABLED", "1").strip().lower() not in ("0", "false", "no")
+MEMORY_DB = os.environ.get("AIDI_MEMORY_DB", "/opt/aidi-gateway/aidi_memory.db")
 
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="aidi-llm")
 _lock = threading.Lock()
@@ -22,12 +25,156 @@ _stats = {
     "llm_started": 0,
     "llm_success": 0,
     "llm_error": 0,
+    "memory_reads": 0,
+    "memory_writes": 0,
     "started_at": int(time.time()),
 }
 
 
 def clamp(value, low, high):
     return max(low, min(high, value))
+
+
+def safe_token(value, fallback, limit=64):
+    text = str(value or "").strip()
+    if not text:
+        text = fallback
+    text = "".join(ch if ch.isalnum() or ch in "_.-" else "_" for ch in text)
+    return text[:limit] or fallback
+
+
+def db_connect():
+    parent = os.path.dirname(MEMORY_DB)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    connection = sqlite3.connect(MEMORY_DB, timeout=5.0)
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA synchronous=NORMAL")
+    return connection
+
+
+def init_memory_db():
+    with db_connect() as db:
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS device_memory (
+                device TEXT PRIMARY KEY,
+                decision_count INTEGER NOT NULL DEFAULT 0,
+                last_scene TEXT NOT NULL DEFAULT 'continuum',
+                last_avatar TEXT NOT NULL DEFAULT 'calm',
+                last_source TEXT NOT NULL DEFAULT 'bootstrap',
+                favorite_scene TEXT NOT NULL DEFAULT 'continuum',
+                favorite_scene_count INTEGER NOT NULL DEFAULT 0,
+                scene_counts TEXT NOT NULL DEFAULT '{}',
+                updated_at INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+
+
+def load_memory(device):
+    try:
+        with db_connect() as db:
+            row = db.execute(
+                "SELECT decision_count,last_scene,last_avatar,last_source,"
+                "favorite_scene,favorite_scene_count,updated_at "
+                "FROM device_memory WHERE device=?",
+                (device,),
+            ).fetchone()
+        with _lock:
+            _stats["memory_reads"] += 1
+        if not row:
+            return {
+                "decision_count": 0,
+                "last_scene": "continuum",
+                "last_avatar": "calm",
+                "favorite_scene": "continuum",
+                "favorite_scene_count": 0,
+                "age_seconds": -1,
+            }
+        age = max(0, int(time.time()) - int(row[6])) if int(row[6]) > 0 else -1
+        return {
+            "decision_count": int(row[0]),
+            "last_scene": row[1],
+            "last_avatar": row[2],
+            "last_source": row[3],
+            "favorite_scene": row[4],
+            "favorite_scene_count": int(row[5]),
+            "age_seconds": age,
+        }
+    except Exception:
+        return {
+            "decision_count": 0,
+            "last_scene": "continuum",
+            "last_avatar": "calm",
+            "favorite_scene": "continuum",
+            "favorite_scene_count": 0,
+            "age_seconds": -1,
+        }
+
+
+def store_memory(device, decision):
+    scene = safe_token((decision.get("scene") or {}).get("name"), "continuum")
+    avatar = safe_token((decision.get("avatar") or {}).get("state"), "calm", 32)
+    source = safe_token(decision.get("source"), "unknown", 96)
+    now = int(time.time())
+    try:
+        with db_connect() as db:
+            row = db.execute(
+                "SELECT decision_count,scene_counts FROM device_memory WHERE device=?",
+                (device,),
+            ).fetchone()
+            total = int(row[0]) if row else 0
+            try:
+                counts = json.loads(row[1]) if row and row[1] else {}
+            except Exception:
+                counts = {}
+            counts[scene] = min(1000000, int(counts.get(scene, 0)) + 1)
+            favorite_scene, favorite_count = max(
+                counts.items(), key=lambda item: int(item[1])
+            )
+            total = min(1000000, total + 1)
+            db.execute(
+                """
+                INSERT INTO device_memory(
+                    device,decision_count,last_scene,last_avatar,last_source,
+                    favorite_scene,favorite_scene_count,scene_counts,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(device) DO UPDATE SET
+                    decision_count=excluded.decision_count,
+                    last_scene=excluded.last_scene,
+                    last_avatar=excluded.last_avatar,
+                    last_source=excluded.last_source,
+                    favorite_scene=excluded.favorite_scene,
+                    favorite_scene_count=excluded.favorite_scene_count,
+                    scene_counts=excluded.scene_counts,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    device,
+                    total,
+                    scene,
+                    avatar,
+                    source,
+                    favorite_scene,
+                    int(favorite_count),
+                    json.dumps(counts, separators=(",", ":"), sort_keys=True),
+                    now,
+                ),
+            )
+        with _lock:
+            _stats["memory_writes"] += 1
+    except Exception:
+        # Memory is advisory. A storage failure must never interrupt wallpaper decisions.
+        return
+
+
+def memory_device_count():
+    try:
+        with db_connect() as db:
+            return int(db.execute("SELECT COUNT(*) FROM device_memory").fetchone()[0])
+    except Exception:
+        return 0
 
 
 def baseline(payload):
@@ -37,6 +184,7 @@ def baseline(payload):
     hour = int(state.get("hour", 12))
     motion = float(state.get("motion_level", 0.0))
     fold_state = state.get("fold_state", "cover")
+    memory = payload.get("memory") or {}
     night = hour >= 22 or hour < 7
     low_battery = battery <= 15 and not charging
 
@@ -56,6 +204,14 @@ def baseline(payload):
         name, avatar, energy = "compact_continuum", "calm", 0.38
         particles, pulse, scale = 0.92, 0.96, 0.999
 
+    # Memory only nudges neutral daytime states; safety/battery states always win.
+    if not low_battery and not night and motion < 0.35:
+        favorite = safe_token(memory.get("favorite_scene"), "continuum")
+        favorite_count = int(memory.get("favorite_scene_count", 0) or 0)
+        if favorite_count >= 3 and favorite not in ("continuum", "deep_black"):
+            name = favorite
+            energy = clamp(energy * 0.95, 0.15, 0.75)
+
     return {
         "decision_id": "fast-%d" % int(time.time()),
         "scene": {
@@ -69,7 +225,7 @@ def baseline(payload):
         },
         "avatar": {"state": avatar},
         "ttl": 60,
-        "source": "aidi-fast-path",
+        "source": "aidi-memory-fast-path",
     }
 
 
@@ -86,8 +242,8 @@ def normalize(candidate, fallback):
         except Exception:
             return float(default)
 
-    name = str(scene_in.get("name", base_scene["name"]))[:64]
-    avatar_state = str(avatar_in.get("state", fallback["avatar"]["state"]))[:32]
+    name = safe_token(scene_in.get("name"), base_scene["name"])
+    avatar_state = safe_token(avatar_in.get("state"), fallback["avatar"]["state"], 32)
 
     return {
         "decision_id": "llm-%d" % int(time.time()),
@@ -108,7 +264,8 @@ def normalize(candidate, fallback):
 
 def ollama_decision(payload, fallback):
     system = """You are the AIDI scene decision engine for Galaxy AI Fold7 live wallpaper.
-Return JSON only. Choose a calm, battery-aware visual state from device context.
+Return JSON only. Choose a calm, battery-aware visual state from current device context and the supplied aggregate memory.
+Memory is advisory: never let a preference override low-battery or night safety behavior.
 Use this exact shape:
 {"scene":{"name":"...","energy":0.0,"particle_multiplier":1.0,"pulse_multiplier":1.0,"scene_scale":1.0,"avatar_x_bias":0.0,"avatar_y_bias":0.0},"avatar":{"state":"calm"}}
 Constraints: energy 0..1, particle_multiplier 0.45..1.8, pulse_multiplier 0.6..1.5,
@@ -139,7 +296,14 @@ Do not add prose, markdown or extra keys."""
 
 
 def cache_key(payload):
-    return str(payload.get("device", "GalaxyFold7"))
+    return safe_token(payload.get("device"), "GalaxyFold7", 96)
+
+
+def enrich_payload(payload, memory):
+    enriched = dict(payload)
+    # Client profile is already aggregate-only; server memory is likewise a summary.
+    enriched["memory"] = memory
+    return enriched
 
 
 def refresh_llm(key, payload, fallback):
@@ -147,15 +311,17 @@ def refresh_llm(key, payload, fallback):
         _stats["llm_started"] += 1
     try:
         decision = ollama_decision(payload, fallback)
+        store_memory(key, decision)
         with _lock:
             _cache[key] = (time.time(), decision)
             _stats["llm_success"] += 1
     except Exception as exc:
+        failed = dict(fallback)
+        failed["source"] = "aidi-llm-fallback"
+        failed["llm_error"] = str(exc)[:160]
+        store_memory(key, failed)
         with _lock:
             _stats["llm_error"] += 1
-            failed = dict(fallback)
-            failed["source"] = "aidi-llm-fallback"
-            failed["llm_error"] = str(exc)[:160]
             _cache[key] = (time.time(), failed)
     finally:
         with _lock:
@@ -163,18 +329,29 @@ def refresh_llm(key, payload, fallback):
 
 
 def decide(payload):
-    fallback = baseline(payload)
     key = cache_key(payload)
+    memory = load_memory(key)
+    enriched = enrich_payload(payload, memory)
+    fallback = baseline(enriched)
     now = time.time()
+
     with _lock:
         _stats["requests"] += 1
         cached = _cache.get(key)
         fresh = cached and now - cached[0] < LLM_CACHE_SECONDS
         if fresh:
             return cached[1]
+
+    if not LLM_ENABLED:
+        fallback["ttl"] = 300
+        fallback["source"] = "aidi-memory-fast-path"
+        store_memory(key, fallback)
+        return fallback
+
+    with _lock:
         if key not in _pending:
             _pending.add(key)
-            _executor.submit(refresh_llm, key, payload, fallback)
+            _executor.submit(refresh_llm, key, enriched, fallback)
     return fallback
 
 
@@ -186,9 +363,13 @@ def health():
     return {
         "status": "ok",
         "service": "aidi-gateway",
+        "version": "0.21",
         "protocol": "scene-v1",
         "model": MODEL,
+        "llm_enabled": LLM_ENABLED,
         "ollama_url": OLLAMA_URL,
+        "memory_backend": "sqlite",
+        "memory_devices": memory_device_count(),
         "pending": pending,
         "cached_devices": cache_devices,
         "stats": stats,
@@ -196,7 +377,7 @@ def health():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AIDI-Gateway/0.20"
+    server_version = "AIDI-Gateway/0.21"
 
     def send_json(self, code, body):
         data = json.dumps(body, separators=(",", ":")).encode("utf-8")
@@ -234,6 +415,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    init_memory_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print("AIDI Gateway v20 listening on %s:%d, model=%s" % (HOST, PORT, MODEL), flush=True)
+    print(
+        "AIDI Gateway v21 listening on %s:%d, model=%s, memory=%s"
+        % (HOST, PORT, MODEL, MEMORY_DB),
+        flush=True,
+    )
     server.serve_forever()
