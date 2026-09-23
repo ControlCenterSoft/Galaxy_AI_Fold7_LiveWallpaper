@@ -31,7 +31,7 @@ jobs:
           for token in [
               'v48 with Natural Fixation Gaze', 'fixationClock', 'fixationDuration',
               'gazeVelocityX', 'gazeVelocityY', 'chooseFixation()',
-              'spring-damper motion', 'touch temporarily becomes the fixation'
+              'spring-damper motion', 'Touch temporarily becomes the fixation'
           ]:
               assert token in gaze, token
           for token in ['getSmile', 'getBrowLift', 'getBrowPinch', 'getCheekLift']:
