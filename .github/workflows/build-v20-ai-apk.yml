@@ -1,0 +1,76 @@
+name: Build Galaxy AI Fold7 v20.0 AI APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v20-ai-living-universe
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Smoke test AIDI Scene Protocol v1
+        run: |
+          python3 gateway_simulator/aidi_gateway_simulator.py > /tmp/aidi-gateway.log 2>&1 &
+          GATEWAY_PID=$!
+          trap 'kill $GATEWAY_PID || true' EXIT
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8765/health >/tmp/aidi-health.json; then break; fi
+            sleep 0.25
+          done
+          cat /tmp/aidi-health.json
+          RESPONSE=$(curl -fsS -X POST http://127.0.0.1:8765/api/v1/scene/analyze \
+            -H 'Content-Type: application/json' \
+            -H 'X-AIDI-Protocol: scene-v1' \
+            -d '{"device":"GalaxyFold7","app_version":"20.0","state":{"battery":82,"charging":false,"fold_state":"main","hour":22,"motion_level":0.18}}')
+          echo "$RESPONSE"
+          python3 - "$RESPONSE" <<'PY'
+          import json, sys
+          body=json.loads(sys.argv[1])
+          assert body['scene']['name']
+          assert 0.0 <= float(body['scene']['energy']) <= 1.0
+          assert 60 <= int(body['ttl']) <= 3600
+          assert body['avatar']['state']
+          PY
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v20.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify AI APK metadata, permission and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v20.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v20.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='200'"
+          echo "$BADGING" | grep -q "versionName='20.0'"
+          $ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Fold7_LiveWallpaper_v20.0.apk | grep -q 'android.permission.INTERNET'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v20.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v20.0.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v20.0
+          path: Galaxy_AI_Fold7_LiveWallpaper_v20.0.apk
+          if-no-files-found: error
+          retention-days: 30
