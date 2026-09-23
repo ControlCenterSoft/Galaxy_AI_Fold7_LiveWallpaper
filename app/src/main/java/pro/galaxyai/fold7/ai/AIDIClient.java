@@ -68,7 +68,7 @@ public final class AIDIClient {
         });
     }
 
-    private static long clampRemoteTtl(int ttlSeconds) {
+    private static long clampRemoteTtl(long ttlSeconds) {
         long requested = ttlSeconds > 0
                 ? ttlSeconds * 1000L
                 : AIDIConfig.DEFAULT_REFRESH_MS;
@@ -76,7 +76,7 @@ public final class AIDIClient {
                 Math.min(AIDIConfig.MAX_REFRESH_MS, requested));
     }
 
-    private static long fallbackRetryDelay(int ttlSeconds) {
+    private static long fallbackRetryDelay(long ttlSeconds) {
         long localTtl = ttlSeconds > 0
                 ? ttlSeconds * 1000L
                 : AIDIConfig.FAILURE_BACKOFF_MS;
