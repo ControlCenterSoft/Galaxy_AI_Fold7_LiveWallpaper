@@ -1,0 +1,133 @@
+name: Build Galaxy AI Fold7 v34.0 Russian Context Presence APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v34-russian-context-presence
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v34 Russian contextual presence contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          context = Path('app/src/main/java/pro/galaxyai/fold7/ai/RussianContextPresenceV34.java').read_text()
+          overlay = Path('app/src/main/java/pro/galaxyai/fold7/engine/AIStatusOverlayRendererV34.java').read_text()
+          service = Path('app/src/main/java/pro/galaxyai/fold7/GalaxyAIWallpaperService.java').read_text()
+          activity = Path('app/src/main/java/pro/galaxyai/fold7/MainActivity.java').read_text()
+          personality = Path('app/src/main/java/pro/galaxyai/fold7/ai/RussianAIPersonalityV33.java').read_text()
+          state = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIState.java').read_text()
+          gradle = Path('app/build.gradle').read_text()
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+          plan = Path('V34_RUSSIAN_CONTEXT_PRESENCE_PLAN.md').read_text()
+
+          for token in ['Держу фокус', 'Размышляю', 'Энергия яркая', 'Тихий режим', 'Я рядом']:
+              assert token in context, token
+          assert 'AIStatusOverlayRendererV34' in service
+          assert 'statusOverlay.draw' in service
+          assert 'Показывать русские AI-статусы' in activity
+          assert 'Скрыть AI-статусы' in activity
+          assert 'LOCALE_TAG = "ru-RU"' in personality
+          for token in ['"locale"', 'RussianAIPersonalityV33.LOCALE_TAG', '"language"']:
+              assert token in state, token
+          assert "versionCode 340" in gradle
+          assert "versionName '34.0'" in gradle
+          assert 'Galaxy AI Fold7 v34' in manifest
+          assert 'android.permission.CAMERA' not in manifest
+          assert 'android.permission.RECORD_AUDIO' not in manifest
+          assert 'android.permission.ACCESS_FINE_LOCATION' not in manifest
+          assert 'No microphone permission, camera permission, precise location permission' in plan
+          assert 'KEY_VISIBLE' in overlay and 'true' in overlay
+          PY
+
+      - name: Run v34 JVM Russian context test
+        run: |
+          cat >/tmp/RussianContextPresenceV34Test.java <<'JAVA'
+          import pro.galaxyai.fold7.ai.RussianContextPresenceV34;
+
+          public final class RussianContextPresenceV34Test {
+              private static void require(boolean ok, String message) {
+                  if (!ok) throw new AssertionError(message);
+              }
+
+              public static void main(String[] args) {
+                  String[] emotions = {"calm", "focused", "thinking", "happy", "sleep"};
+                  for (String emotion : emotions) {
+                      for (int level = 0; level <= 2; level++) {
+                          RussianContextPresenceV34.Snapshot s = RussianContextPresenceV34.describe(
+                                  emotion, 0.8f, 0.7f, 0.65f, level, 1727000000000L);
+                          require(s != null, emotion + " snapshot");
+                          require(RussianContextPresenceV34.isRussianText(s.headline), emotion + " headline Russian");
+                          require(RussianContextPresenceV34.isRussianText(s.detail), emotion + " detail Russian");
+                          require(s.accent >= 0f && s.accent <= 1f, emotion + " accent bounds");
+                      }
+                  }
+                  RussianContextPresenceV34.Snapshot aware = RussianContextPresenceV34.describe(
+                          "aware", 0.7f, 0.8f, 0.5f, 1, 1727000000000L);
+                  require("thinking".equals(aware.emotion), "aware mapping must remain thinking");
+                  RussianContextPresenceV34.Snapshot resting = RussianContextPresenceV34.describe(
+                          "resting", 0.2f, 0.2f, 0.2f, 0, 1727000000000L);
+                  require("sleep".equals(resting.emotion), "resting mapping must remain sleep");
+                  System.out.println("v34 Russian context presence PASS");
+              }
+          }
+          JAVA
+          mkdir -p /tmp/v34-test
+          javac -encoding UTF-8 -d /tmp/v34-test \
+            app/src/main/java/pro/galaxyai/fold7/ai/RussianAIPersonalityV33.java \
+            app/src/main/java/pro/galaxyai/fold7/ai/RussianContextPresenceV34.java \
+            /tmp/RussianContextPresenceV34Test.java
+          java -cp /tmp/v34-test RussianContextPresenceV34Test
+
+      - name: Verify inherited AIDI gateway stack compiles
+        run: python3 -m py_compile aidi_gateway/*.py gateway_simulator/*.py
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v34.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify v34 APK metadata, permissions and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v34.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v34.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='340'"
+          echo "$BADGING" | grep -q "versionName='34.0'"
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Fold7_LiveWallpaper_v34.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v34.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v34.0.apk | tee Galaxy_AI_Fold7_LiveWallpaper_v34.0.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v34.0
+          path: |
+            Galaxy_AI_Fold7_LiveWallpaper_v34.0.apk
+            Galaxy_AI_Fold7_LiveWallpaper_v34.0.sha256
+          if-no-files-found: error
+          retention-days: 30
