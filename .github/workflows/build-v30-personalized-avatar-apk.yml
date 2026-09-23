@@ -1,0 +1,121 @@
+name: Build Galaxy AI Fold7 v30.0 Personalized Avatar APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v30-personalized-avatar
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v30 personalization privacy contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          personal = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIPersonalizationProfileV30.java').read_text()
+          state = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIState.java').read_text()
+          client = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIDIClient.java').read_text()
+          service = Path('app/src/main/java/pro/galaxyai/fold7/GalaxyAIWallpaperService.java').read_text()
+          voice = Path('app/src/main/java/pro/galaxyai/fold7/engine/AmbientPersonalityControllerV29.java').read_text()
+          activity = Path('app/src/main/java/pro/galaxyai/fold7/MainActivity.java').read_text()
+          gradle = Path('app/build.gradle').read_text()
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+          for token in ['PRESET_SOFT', 'PRESET_BALANCED', 'PRESET_VIVID', 'resetProfile', 'avatar-personalization-v1', 'contains_sensitive_data']:
+              assert token in personal, token
+          assert 'BuildConfig.VERSION_NAME' in state
+          assert 'withPersonalization' in state
+          assert 'personalizationProfile.snapshot()' in client
+          assert 'applyVoiceManner' in voice
+          assert 'AIPersonalizationProfileV30' in service
+          assert 'Personal profile: Soft' in activity
+          assert 'Reset personal avatar profile' in activity
+          assert 'KEY_PROFILE_ID' in personal
+          gateway_json = personal.split('toGatewayJson()', 1)[1]
+          assert 'profile_id' not in gateway_json
+          assert "versionCode 300" in gradle
+          assert "versionName '30.0'" in gradle
+          assert 'Galaxy AI Fold7 v30' in manifest
+          assert 'android.permission.RECORD_AUDIO' not in manifest
+          PY
+
+      - name: Verify AIDI accepts sanitized personalization extension
+        env:
+          PYTHONPATH: aidi_gateway
+          AIDI_GATEWAY_HOST: 127.0.0.1
+          AIDI_GATEWAY_PORT: '8775'
+          AIDI_QDRANT_URL: ''
+          AIDI_OLLAMA_URL: http://127.0.0.1:9/api/chat
+          AIDI_CLOUD_ENABLED: '0'
+        run: |
+          python3 -m py_compile aidi_gateway/*.py
+          python3 aidi_gateway/server.py >/tmp/aidi-v30.log 2>&1 &
+          PID=$!
+          trap 'kill $PID || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8775/health >/tmp/aidi-v30-health.json; then break; fi
+            sleep 0.2
+          done
+          curl -fsS -o /tmp/aidi-v30-response.json \
+            -X POST http://127.0.0.1:8775/api/v1/scene/analyze \
+            -H 'Content-Type: application/json' \
+            -H 'X-AIDI-Protocol: scene-v1' \
+            -H 'X-AIDI-Request-Id: ci-v30-personal-1' \
+            -d '{"device":"GalaxyFold7-ci","app_version":"30.0","request_id":"ci-v30-personal-1","state":{"battery":73,"charging":false,"fold_state":"main","hour":18,"motion_level":0.12},"profile":{"schema":"profile-v2","samples":22,"personality":{"presence":0.6,"serenity":0.7,"curiosity":0.5,"focus":0.5}},"personalization":{"schema":"avatar-personalization-v1","preset":"balanced","appearance_warmth":0.5,"eye_glow":0.62,"expression_intensity":0.6,"voice_pitch":1.02,"voice_rate":0.92,"contains_sensitive_data":false},"context":{"schema":"context-v1","light":"normal","confidence":0.8,"source":"ci","raw_media":false}}'
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          body = json.loads(Path('/tmp/aidi-v30-response.json').read_text())
+          assert body['request_id'] == 'ci-v30-personal-1'
+          assert body['avatar']['emotion'] in {'calm','focused','thinking','happy','sleep'}
+          assert body['autonomy']['raw_media'] is False
+          assert body['provenance']['schema'] == 'provenance-v1'
+          PY
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v30.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify Personalized Avatar APK metadata, permissions and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v30.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v30.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='300'"
+          echo "$BADGING" | grep -q "versionName='30.0'"
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Fold7_LiveWallpaper_v30.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v30.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v30.0.apk | tee Galaxy_AI_Fold7_LiveWallpaper_v30.0.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v30.0
+          path: |
+            Galaxy_AI_Fold7_LiveWallpaper_v30.0.apk
+            Galaxy_AI_Fold7_LiveWallpaper_v30.0.sha256
+          if-no-files-found: error
+          retention-days: 30
