@@ -4,8 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.speech.tts.TextToSpeech;
 
-import java.util.Locale;
-
+import pro.galaxyai.fold7.ai.RussianAIPersonalityV33;
 import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
@@ -13,6 +12,7 @@ import pro.galaxyai.fold7.ai.SceneDecision;
  *
  * Uses Android TextToSpeech only. No microphone, speech recognition or raw audio capture is used.
  * Voice is opt-in and defaults to disabled. All timing and enablement state are stored locally.
+ * Since v33 the communication language on the phone is Russian (ru-RU) by default.
  */
 public final class AmbientPersonalityControllerV29 implements TextToSpeech.OnInitListener {
     public static final String PREFS = "ambient_personality_v29";
@@ -39,7 +39,7 @@ public final class AmbientPersonalityControllerV29 implements TextToSpeech.OnIni
     @Override
     public void onInit(int status) {
         if (status == TextToSpeech.SUCCESS) {
-            int result = tts.setLanguage(Locale.getDefault());
+            int result = tts.setLanguage(RussianAIPersonalityV33.locale());
             ttsReady = result != TextToSpeech.LANG_MISSING_DATA
                     && result != TextToSpeech.LANG_NOT_SUPPORTED;
             if (ttsReady) applyVoiceManner(desiredPitch, desiredRate);
@@ -61,7 +61,7 @@ public final class AmbientPersonalityControllerV29 implements TextToSpeech.OnIni
     public void maybeReact(SceneDecision decision) {
         if (!isVoiceEnabled() || !ttsReady || decision == null) return;
 
-        String emotion = normalizeEmotion(decision.avatarState);
+        String emotion = RussianAIPersonalityV33.normalizeEmotion(decision.avatarState);
         long now = System.currentTimeMillis();
         long minInterval = minIntervalMillis(getReactionLevel());
 
@@ -69,10 +69,10 @@ public final class AmbientPersonalityControllerV29 implements TextToSpeech.OnIni
         if (!emotionChanged && now - lastSpokenAt < minInterval) return;
         if (now - lastSpokenAt < Math.min(30_000L, minInterval)) return;
 
-        String phrase = phraseFor(emotion, getReactionLevel());
+        String phrase = RussianAIPersonalityV33.phraseFor(emotion, getReactionLevel());
         if (phrase.isEmpty()) return;
 
-        tts.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "galaxy-ai-v29-" + now);
+        tts.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "galaxy-ai-v33-" + now);
         lastEmotion = emotion;
         lastSpokenAt = now;
     }
@@ -114,23 +114,6 @@ public final class AmbientPersonalityControllerV29 implements TextToSpeech.OnIni
         if (level == LEVEL_EXPRESSIVE) return 90_000L;
         if (level == LEVEL_NORMAL) return 240_000L;
         return 900_000L;
-    }
-
-    private static String phraseFor(String emotion, int level) {
-        if ("focused".equals(emotion)) return level == LEVEL_QUIET ? "Focused." : "Focusing with you.";
-        if ("thinking".equals(emotion)) return level == LEVEL_EXPRESSIVE ? "The universe is thinking with you." : "Thinking.";
-        if ("happy".equals(emotion)) return level == LEVEL_EXPRESSIVE ? "Energy is bright today." : "Bright energy.";
-        if ("sleep".equals(emotion)) return level == LEVEL_EXPRESSIVE ? "I will stay quiet while the universe rests." : "Resting quietly.";
-        return level == LEVEL_EXPRESSIVE ? "I am here with you." : "I am here.";
-    }
-
-    private static String normalizeEmotion(String value) {
-        String v = value == null ? "calm" : value.trim().toLowerCase();
-        if ("aware".equals(v)) return "thinking";
-        if ("resting".equals(v)) return "sleep";
-        if ("calm".equals(v) || "focused".equals(v) || "thinking".equals(v)
-                || "happy".equals(v) || "sleep".equals(v)) return v;
-        return "calm";
     }
 
     private static int clampLevel(int level) {
