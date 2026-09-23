@@ -1,0 +1,157 @@
+name: Build Galaxy AI Fold7 v22.0 Context Vision APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v22-context-vision-universe
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v22 privacy and context sources
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+          state = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIState.java').read_text()
+          signal = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIContextSignal.java').read_text()
+          collector = Path('app/src/main/java/pro/galaxyai/fold7/ai/AmbientContextCollector.java').read_text()
+          service = Path('app/src/main/java/pro/galaxyai/fold7/GalaxyAIWallpaperService.java').read_text()
+          gateway = Path('aidi_gateway/server.py').read_text()
+          policy = Path('aidi_gateway/context.py').read_text()
+          assert 'android.permission.INTERNET' in manifest
+          for forbidden in ['android.permission.CAMERA', 'android.permission.RECORD_AUDIO',
+                            'ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION']:
+              assert forbidden not in manifest, forbidden
+          assert 'context-v1' in signal
+          assert 'raw_media' in signal
+          assert 'Sensor.TYPE_LIGHT' in collector
+          assert 'ambientContext.start()' in service
+          assert 'ambientContext.stop()' in service
+          assert 'withContext' in state
+          assert 'apply_context' in gateway
+          assert 'raw_media' in policy
+          PY
+
+      - name: Smoke test context policy
+        env:
+          PYTHONPATH: aidi_gateway
+        run: |
+          python3 -m py_compile aidi_gateway/server.py aidi_gateway/memory.py aidi_gateway/context.py
+          python3 - <<'PY'
+          from context import apply_context, sanitize_context
+          base = {
+              'scene': {
+                  'name': 'living_continuum',
+                  'energy': 0.5,
+                  'particle_multiplier': 1.0,
+                  'pulse_multiplier': 1.0,
+                  'scene_scale': 1.0,
+                  'avatar_x_bias': 0.0,
+                  'avatar_y_bias': 0.0,
+              },
+              'avatar': {'state': 'aware'},
+              'ttl': 60,
+          }
+          dark = apply_context({'context': {'schema': 'context-v1', 'light': 'dark',
+              'semantic_label': 'low_light_environment', 'confidence': 0.9,
+              'source': 'ci', 'raw_media': False}}, base)
+          assert dark['context']['applied'] is True
+          assert dark['scene']['energy'] < 0.5
+          rejected = sanitize_context({'context': {'schema': 'context-v1', 'light': 'bright',
+              'confidence': 1.0, 'source': 'camera', 'raw_media': True}})
+          assert rejected['raw_media'] is False
+          assert rejected['semantic_label'] == 'rejected_raw_media'
+          safe = apply_context({'context': {'schema': 'context-v1', 'light': 'bright',
+              'confidence': 1.0, 'source': 'ci', 'raw_media': False}}, base, low_battery=True)
+          assert safe['context']['applied'] is False
+          assert safe['scene']['energy'] == 0.5
+          PY
+
+      - name: Integration test AIDI Gateway v22 context contract
+        env:
+          PYTHONPATH: aidi_gateway
+          AIDI_GATEWAY_HOST: 127.0.0.1
+          AIDI_GATEWAY_PORT: '8767'
+          AIDI_QDRANT_URL: ''
+          AIDI_OLLAMA_URL: http://127.0.0.1:9/api/chat
+          AIDI_LLM_CACHE_SECONDS: '900'
+        run: |
+          python3 aidi_gateway/server.py > /tmp/aidi-v22.log 2>&1 &
+          GATEWAY_PID=$!
+          trap 'kill $GATEWAY_PID || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8767/health >/tmp/aidi-v22-health.json; then break; fi
+            sleep 0.2
+          done
+          REQUEST_ID='ci-v22-context-42'
+          curl -fsS -D /tmp/aidi-v22-headers -o /tmp/aidi-v22-response.json \
+            -X POST http://127.0.0.1:8767/api/v1/scene/analyze \
+            -H 'Content-Type: application/json' \
+            -H 'X-AIDI-Protocol: scene-v1' \
+            -H "X-AIDI-Request-Id: $REQUEST_ID" \
+            -d '{"device":"GalaxyFold7-ci","app_version":"22.0","request_id":"ci-v22-context-42","captured_at_ms":1770000000000,"state_sequence":42,"state":{"battery":82,"charging":false,"fold_state":"main","hour":21,"motion_level":0.18,"display":{"width_px":2176,"height_px":1812,"orientation":"landscape"}},"profile":{"schema":"profile-v1","samples":7,"average_energy":0.41,"average_particles":0.94,"last_scene":"deep_nebula","last_avatar":"calm","gateway_successes":6,"fallback_count":1},"context":{"schema":"context-v1","light":"dark","semantic_label":"low_light_environment","confidence":0.86,"source":"android-light-sensor","captured_at_ms":1770000000000,"raw_media":false}}'
+          cat /tmp/aidi-v22-health.json
+          cat /tmp/aidi-v22-response.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          health = json.loads(Path('/tmp/aidi-v22-health.json').read_text())
+          body = json.loads(Path('/tmp/aidi-v22-response.json').read_text())
+          assert health['version'] == '0.22'
+          assert health['context_protocol'] == 'context-v1'
+          assert health['raw_media_accepted'] is False
+          assert body['request_id'] == 'ci-v22-context-42'
+          assert body['context']['schema'] == 'context-v1'
+          assert body['context']['light'] == 'dark'
+          assert body['context']['raw_media'] is False
+          assert body['context']['applied'] is True
+          assert 0.0 <= float(body['scene']['energy']) <= 1.0
+          PY
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v22.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify Context Vision APK metadata, permissions and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v22.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v22.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='220'"
+          echo "$BADGING" | grep -q "versionName='22.0'"
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Fold7_LiveWallpaper_v22.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v22.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v22.0.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v22.0
+          path: Galaxy_AI_Fold7_LiveWallpaper_v22.0.apk
+          if-no-files-found: error
+          retention-days: 30
