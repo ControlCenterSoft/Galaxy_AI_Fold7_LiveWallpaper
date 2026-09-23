@@ -121,8 +121,18 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 fold.update(main);
                 camera.update(fold.getProgress());
 
-                AIState state = stateCollector.capture(main, Math.abs(motion.getPulse()));
-                aidi.requestIfNeeded(state);
+                // Battery and display context are relatively expensive to collect on Android.
+                // Only create a fresh state snapshot when AIDI is actually due for refresh.
+                if (aidi.needsRefresh()) {
+                    AIState state = stateCollector.capture(
+                            main,
+                            Math.abs(motion.getPulse()),
+                            w,
+                            h
+                    );
+                    aidi.requestIfNeeded(state);
+                }
+
                 universe.setDecision(aidi.getDecision());
                 universe.update(deltaSeconds, main);
                 frameDelayMillis = universe.getFrameDelayMillis(main);
