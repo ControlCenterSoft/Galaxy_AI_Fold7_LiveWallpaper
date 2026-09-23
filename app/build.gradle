@@ -10,8 +10,8 @@ android {
         applicationId 'pro.galaxyai.fold7'
         minSdk 26
         targetSdk 35
-        versionCode 280
-        versionName '28.0'
+        versionCode 290
+        versionName '29.0'
     }
 
     buildTypes {
