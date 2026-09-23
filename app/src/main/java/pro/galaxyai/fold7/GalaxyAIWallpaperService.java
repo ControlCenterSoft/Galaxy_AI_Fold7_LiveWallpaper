@@ -20,7 +20,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
     @Override
     public Engine onCreateEngine() {
         UniverseIdentity identity = loadUniverseIdentity();
-        return new V16Engine(identity.seed, identity.evolutionEpoch);
+        return new V17Engine(identity.seed, identity.evolutionEpoch);
     }
 
     private UniverseIdentity loadUniverseIdentity() {
@@ -49,7 +49,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         }
     }
 
-    private class V16Engine extends Engine {
+    private class V17Engine extends Engine {
         private final Handler handler = new Handler();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
@@ -60,12 +60,12 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private final GlowEngineV6 glow = new GlowEngineV6();
         private final HologramEngineV6 hologram = new HologramEngineV6();
         private final MotionControllerV6 motion = new MotionControllerV6();
-        private final EntangledUniverseControllerV16 universe;
+        private final ContinuumUniverseControllerV17 universe;
         private boolean visible;
         private long frameDelayMillis = 37L;
 
-        V16Engine(long universeSeed, long evolutionEpoch) {
-            universe = new EntangledUniverseControllerV16(universeSeed, evolutionEpoch);
+        V17Engine(long universeSeed, long evolutionEpoch) {
+            universe = new ContinuumUniverseControllerV17(universeSeed, evolutionEpoch);
         }
 
         private final Runnable loop = new Runnable() {
