@@ -18,8 +18,8 @@ public final class SceneDecision {
                          float particleMultiplier, float pulseMultiplier,
                          float sceneScaleMultiplier, float horizontalBias,
                          float verticalBias, long ttlSeconds, String source) {
-        this.sceneName = sceneName == null ? "continuum" : sceneName;
-        this.avatarState = avatarState == null ? "calm" : avatarState;
+        this.sceneName = safe(sceneName, "continuum", 64);
+        this.avatarState = safe(avatarState, "calm", 32);
         this.energy = clamp(energy, 0f, 1f);
         this.particleMultiplier = clamp(particleMultiplier, 0.45f, 1.8f);
         this.pulseMultiplier = clamp(pulseMultiplier, 0.6f, 1.5f);
@@ -27,7 +27,7 @@ public final class SceneDecision {
         this.horizontalBias = clamp(horizontalBias, -0.02f, 0.02f);
         this.verticalBias = clamp(verticalBias, -0.02f, 0.02f);
         this.ttlSeconds = Math.max(60L, Math.min(3600L, ttlSeconds));
-        this.source = source == null ? "unknown" : source;
+        this.source = safe(source, "unknown", 96);
     }
 
     public static SceneDecision neutral(String source) {
@@ -52,13 +52,20 @@ public final class SceneDecision {
         double x = scene != null ? scene.optDouble("avatar_x_bias", 0.0) : 0.0;
         double y = scene != null ? scene.optDouble("avatar_y_bias", 0.0) : 0.0;
         long ttl = root.optLong("ttl", 900L);
+        String source = root.optString("source", "aidi-gateway");
 
         return new SceneDecision(sceneName, avatarState, (float) energy,
                 (float) particles, (float) pulse, (float) scale,
-                (float) x, (float) y, ttl, "aidi-gateway");
+                (float) x, (float) y, ttl, source);
     }
 
     private static float clamp(float value, float min, float max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    private static String safe(String value, String fallback, int maxLength) {
+        if (value == null || value.trim().isEmpty()) return fallback;
+        String normalized = value.trim();
+        return normalized.length() > maxLength ? normalized.substring(0, maxLength) : normalized;
     }
 }
