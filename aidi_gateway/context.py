@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Privacy-bounded environmental context policy for AIDI Gateway v22."""
+"""Privacy-bounded environmental context policy for AIDI Gateway v22+v23."""
+
+from personality import apply_personality
 
 
 def clamp(value, low, high):
@@ -25,7 +27,6 @@ def sanitize_context(payload):
             "raw_media": False,
         }
 
-    # raw_media=true is deliberately rejected: v22 accepts semantic context only.
     if bool(raw.get("raw_media", False)):
         return {
             "schema": "context-v1",
@@ -56,7 +57,6 @@ def apply_context(payload, decision, low_battery=False):
     confidence = context["confidence"]
     light = context["light"]
 
-    # Environmental context is only a bounded visual hint. Battery safety wins.
     if not low_battery and confidence >= 0.50:
         energy = clamp(_number(scene.get("energy", 0.45)), 0.0, 1.0)
         particles = clamp(_number(scene.get("particle_multiplier", 1.0)), 0.45, 1.8)
@@ -85,4 +85,4 @@ def apply_context(payload, decision, low_battery=False):
         "raw_media": False,
         "applied": bool(not low_battery and confidence >= 0.50),
     }
-    return result
+    return apply_personality(payload, result)
