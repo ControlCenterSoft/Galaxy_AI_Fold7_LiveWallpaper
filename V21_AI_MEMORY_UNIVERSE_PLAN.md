@@ -37,6 +37,10 @@ With `AIDI_QDRANT_URL` empty, the Gateway remains fully functional with bounded 
 5. APK signature verification passes.
 6. APK artifact is uploaded and SHA-256 is emitted.
 
+## Build status
+
+The v21 workflow is registered. This commit intentionally triggers the first full v21 memory + gateway + APK validation run.
+
 ## Next release
 
 v22 will add a privacy-gated Context/Vision layer. It must remain opt-in and must not require camera access for normal wallpaper operation.
