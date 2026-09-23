@@ -12,6 +12,8 @@ Environment=AIDI_GATEWAY_PORT=8088
 Environment=AIDI_OLLAMA_URL=http://192.168.10.218:11434/api/chat
 Environment=AIDI_OLLAMA_MODEL=qwen3-coder:30b
 Environment=AIDI_LLM_CACHE_SECONDS=900
+Environment=AIDI_LLM_ENABLED=1
+Environment=AIDI_MEMORY_DB=/opt/aidi-gateway/aidi_memory.db
 ExecStart=/usr/bin/python3 /opt/aidi-gateway/server.py
 Restart=always
 RestartSec=3
