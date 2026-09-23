@@ -54,7 +54,7 @@ jobs:
               assert token in voice, token
 
           assert 'Деформируемый живой портрет' in activity
-          assert 'Микрофон' in activity and 'Камера' in activity
+          assert 'микрофон' in activity and 'Камера' in activity
           assert 'LOCALE_TAG = "ru-RU"' in personality
           assert 'LANGUAGE = "ru"' in personality
           for token in ['"locale"', 'RussianAIPersonalityV33.LOCALE_TAG', '"language"']:
