@@ -16,7 +16,6 @@ import pro.galaxyai.fold7.engine.*;
 
 public class GalaxyAIWallpaperService extends WallpaperService {
 
-    // Preserve the v9+ namespace so upgrades keep the same personal universe.
     private static final String PREFS_UNIVERSE = "personal_universe_v9";
     private static final String KEY_SCENE_SEED = "scene_seed";
     private static final String KEY_EVOLUTION_EPOCH = "v10_evolution_epoch";
@@ -24,7 +23,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
     @Override
     public Engine onCreateEngine() {
         UniverseIdentity identity = loadUniverseIdentity();
-        return new V22Engine(identity.seed, identity.evolutionEpoch);
+        return new V23Engine(identity.seed, identity.evolutionEpoch);
     }
 
     private UniverseIdentity loadUniverseIdentity() {
@@ -53,7 +52,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         }
     }
 
-    private class V22Engine extends Engine {
+    private class V23Engine extends Engine {
         private final Handler handler = new Handler();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
@@ -70,10 +69,11 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 new AmbientContextCollector(GalaxyAIWallpaperService.this);
         private final AIDIClient aidi = new AIDIClient(GalaxyAIWallpaperService.this);
         private final MemoryAwareUniverseControllerV21 universe;
+        private final AIPersonalityControllerV23 personality = new AIPersonalityControllerV23();
         private boolean visible;
         private long frameDelayMillis = 37L;
 
-        V22Engine(long universeSeed, long evolutionEpoch) {
+        V23Engine(long universeSeed, long evolutionEpoch) {
             universe = new MemoryAwareUniverseControllerV21(universeSeed, evolutionEpoch);
         }
 
@@ -131,8 +131,6 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 fold.update(main);
                 camera.update(fold.getProgress());
 
-                // Context is privacy-bounded: a coarse light bucket and semantic label only.
-                // No raw image/media and no CAMERA permission are used by this runtime.
                 if (aidi.needsRefresh()) {
                     AIState state = stateCollector.capture(
                             main,
@@ -144,7 +142,9 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 }
 
                 universe.setDecision(aidi.getDecision());
+                personality.setDecision(aidi.getDecision());
                 universe.update(deltaSeconds, main);
+                personality.update(deltaSeconds);
                 frameDelayMillis = universe.getFrameDelayMillis(main);
 
                 canvas.save();
@@ -158,9 +158,11 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 galaxy.draw(canvas, w, h, main);
 
                 float avatarX = (main ? w * 0.68f : w * 0.62f)
-                        + w * universe.getAvatarHorizontalBias();
-                float avatarY = h * (0.46f + universe.getAvatarVerticalBias());
-                float avatarSize = main ? Math.min(w, h) * 0.44f : w * 0.38f;
+                        + w * (universe.getAvatarHorizontalBias() + personality.getHorizontalDrift());
+                float avatarY = h * (0.46f + universe.getAvatarVerticalBias()
+                        + personality.getVerticalDrift());
+                float baseAvatarSize = main ? Math.min(w, h) * 0.44f : w * 0.38f;
+                float avatarSize = baseAvatarSize * personality.getAvatarScale();
 
                 glow.draw(
                         canvas,
@@ -168,6 +170,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                         avatarY,
                         avatarSize * (0.90f + motion.getPulse() * 0.08f)
                                 * universe.getPulseMultiplier()
+                                * personality.getGlowMultiplier()
                 );
                 avatar.draw(canvas, avatarX, avatarY, avatarSize);
                 hologram.draw(
@@ -176,12 +179,14 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                         avatarY,
                         avatarSize,
                         motion.getPulse() * universe.getPulseMultiplier()
+                                * personality.getHologramMultiplier()
                 );
                 particles.draw(
                         canvas,
                         avatarX,
                         avatarY,
                         avatarSize * 1.35f * universe.getParticleMultiplier()
+                                * personality.getAuraParticleMultiplier()
                 );
 
                 canvas.restore();
