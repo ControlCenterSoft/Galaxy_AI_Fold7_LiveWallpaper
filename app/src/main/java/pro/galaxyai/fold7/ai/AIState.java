@@ -15,24 +15,25 @@ public final class AIState {
     public final long capturedAtMs;
     public final long sequence;
     public final AIProfileMemory.ProfileSnapshot profile;
+    public final AIContextSignal context;
 
     public AIState(int batteryPercent, boolean charging, boolean mainDisplay,
                    int hourOfDay, float motionLevel) {
         this(batteryPercent, charging, mainDisplay, hourOfDay, motionLevel,
-                0, 0, System.currentTimeMillis(), 0L, null);
+                0, 0, System.currentTimeMillis(), 0L, null, null);
     }
 
     public AIState(int batteryPercent, boolean charging, boolean mainDisplay,
                    int hourOfDay, float motionLevel, int displayWidthPx,
                    int displayHeightPx, long capturedAtMs, long sequence) {
         this(batteryPercent, charging, mainDisplay, hourOfDay, motionLevel,
-                displayWidthPx, displayHeightPx, capturedAtMs, sequence, null);
+                displayWidthPx, displayHeightPx, capturedAtMs, sequence, null, null);
     }
 
     private AIState(int batteryPercent, boolean charging, boolean mainDisplay,
                     int hourOfDay, float motionLevel, int displayWidthPx,
                     int displayHeightPx, long capturedAtMs, long sequence,
-                    AIProfileMemory.ProfileSnapshot profile) {
+                    AIProfileMemory.ProfileSnapshot profile, AIContextSignal context) {
         this.batteryPercent = Math.max(0, Math.min(100, batteryPercent));
         this.charging = charging;
         this.mainDisplay = mainDisplay;
@@ -43,20 +44,22 @@ public final class AIState {
         this.capturedAtMs = Math.max(0L, capturedAtMs);
         this.sequence = Math.max(0L, sequence);
         this.profile = profile;
+        this.context = context;
     }
 
     public AIState withProfile(AIProfileMemory.ProfileSnapshot profile) {
         return new AIState(
-                batteryPercent,
-                charging,
-                mainDisplay,
-                hourOfDay,
-                motionLevel,
-                displayWidthPx,
-                displayHeightPx,
-                capturedAtMs,
-                sequence,
-                profile
+                batteryPercent, charging, mainDisplay, hourOfDay, motionLevel,
+                displayWidthPx, displayHeightPx, capturedAtMs, sequence,
+                profile, context
+        );
+    }
+
+    public AIState withContext(AIContextSignal context) {
+        return new AIState(
+                batteryPercent, charging, mainDisplay, hourOfDay, motionLevel,
+                displayWidthPx, displayHeightPx, capturedAtMs, sequence,
+                profile, context
         );
     }
 
@@ -76,11 +79,12 @@ public final class AIState {
 
         JSONObject root = new JSONObject();
         root.put("device", "GalaxyFold7");
-        root.put("app_version", "21.0");
+        root.put("app_version", "22.0");
         root.put("captured_at_ms", capturedAtMs);
         root.put("state_sequence", sequence);
         root.put("state", state);
         if (profile != null) root.put("profile", profile.toJson());
+        if (context != null) root.put("context", context.toJson());
         return root;
     }
 }
