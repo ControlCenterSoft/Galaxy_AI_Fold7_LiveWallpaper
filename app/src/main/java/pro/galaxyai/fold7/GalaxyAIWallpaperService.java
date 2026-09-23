@@ -26,7 +26,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
     @Override
     public Engine onCreateEngine() {
         UniverseIdentity identity = loadUniverseIdentity();
-        return new V42Engine(identity.seed, identity.evolutionEpoch);
+        return new V43Engine(identity.seed, identity.evolutionEpoch);
     }
 
     private UniverseIdentity loadUniverseIdentity() {
@@ -55,7 +55,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         }
     }
 
-    private class V42Engine extends Engine {
+    private class V43Engine extends Engine {
         private final Handler handler = new Handler();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
@@ -93,7 +93,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private int surfaceWidth = 1;
         private int surfaceHeight = 1;
 
-        V42Engine(long universeSeed, long evolutionEpoch) {
+        V43Engine(long universeSeed, long evolutionEpoch) {
             universe = new MemoryAwareUniverseControllerV21(universeSeed, evolutionEpoch);
             setTouchEventsEnabled(true);
         }
@@ -232,15 +232,6 @@ public class GalaxyAIWallpaperService extends WallpaperService {
 
                 galaxy.draw(canvas, w, h, main);
 
-                canvas.save();
-                livingMotion.applyPortraitTransform(canvas, w, h);
-                autonomousGesture.applyGestureTransform(canvas, w, h);
-                cinematicDepth.drawBehind(canvas, w, h, main);
-                avatar.draw(canvas, w, h, main);
-                speechFace.draw(canvas, w, h, main);
-                cinematicDepth.drawOver(canvas, w, h, main);
-                canvas.restore();
-
                 float avatarX = (main ? w * 0.54f : w * 0.50f)
                         + w * (universe.getAvatarHorizontalBias() + personality.getHorizontalDrift()) * 0.72f
                         + w * portraitPresence.getHorizontalShift()
@@ -269,6 +260,10 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 float effectScale = renderQuality.getEffectScale()
                         * (0.98f + livingMotion.getMotionIntensity() * 0.05f)
                         * (0.99f + autonomousGesture.getIntensity() * 0.03f);
+
+                // v43 surface-guard invariant: every broad legacy effect is rendered behind
+                // the opaque photographic portrait. Nothing may paint a blue circle or scan
+                // mask over the face.
                 glow.draw(
                         canvas,
                         avatarX,
@@ -303,6 +298,16 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                                 * (0.84f + personal.expressionIntensity * 0.18f)
                                 * renderQuality.getParticleScale()
                 );
+
+                canvas.save();
+                livingMotion.applyPortraitTransform(canvas, w, h);
+                autonomousGesture.applyGestureTransform(canvas, w, h);
+                cinematicDepth.drawBehind(canvas, w, h, main);
+                avatar.draw(canvas, w, h, main);
+                // Lip articulation remains local and is only visible while Russian TTS is
+                // actually speaking. The old full-face post overlays stay disabled.
+                speechFace.draw(canvas, w, h, main);
+                canvas.restore();
 
                 float overlayWidth = main
                         ? Math.min(w * 0.78f, avatarSize * 0.90f)
