@@ -12,7 +12,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Smoke test AIDI Scene Protocol v1
+      - name: Verify Android AIDI state exchange contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          state = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIState.java').read_text()
+          client = Path('app/src/main/java/pro/galaxyai/fold7/ai/HttpAIDIGatewayTransport.java').read_text()
+          service = Path('app/src/main/java/pro/galaxyai/fold7/GalaxyAIWallpaperService.java').read_text()
+          for token in ['captured_at_ms', 'state_sequence', 'display', 'width_px', 'height_px']:
+              assert token in state, token
+          for token in ['X-AIDI-Request-Id', 'request_id', 'X-AIDI-Protocol']:
+              assert token in client, token
+          assert 'aidi.needsRefresh()' in service
+          assert 'stateCollector.capture(' in service
+          PY
+
+      - name: Integration test AIDI Scene Protocol v1
         run: |
           python3 gateway_simulator/aidi_gateway_simulator.py > /tmp/aidi-gateway.log 2>&1 &
           GATEWAY_PID=$!
@@ -22,19 +37,45 @@ jobs:
             sleep 0.25
           done
           cat /tmp/aidi-health.json
-          RESPONSE=$(curl -fsS -X POST http://127.0.0.1:8765/api/v1/scene/analyze \
+
+          REQUEST_ID='ci-state-42'
+          curl -fsS -D /tmp/aidi-headers -o /tmp/aidi-response.json \
+            -X POST http://127.0.0.1:8765/api/v1/scene/analyze \
             -H 'Content-Type: application/json' \
             -H 'X-AIDI-Protocol: scene-v1' \
-            -d '{"device":"GalaxyFold7","app_version":"20.0","state":{"battery":82,"charging":false,"fold_state":"main","hour":22,"motion_level":0.18}}')
-          echo "$RESPONSE"
-          python3 - "$RESPONSE" <<'PY'
-          import json, sys
-          body=json.loads(sys.argv[1])
+            -H "X-AIDI-Request-Id: $REQUEST_ID" \
+            -d '{"device":"GalaxyFold7","app_version":"20.0","request_id":"ci-state-42","captured_at_ms":1770000000000,"state_sequence":42,"state":{"battery":82,"charging":false,"fold_state":"main","hour":22,"motion_level":0.18,"display":{"width_px":2176,"height_px":1812,"orientation":"landscape"}}}'
+          cat /tmp/aidi-headers
+          cat /tmp/aidi-response.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          headers = Path('/tmp/aidi-headers').read_text().lower()
+          body = json.loads(Path('/tmp/aidi-response.json').read_text())
+          assert 'x-aidi-protocol: scene-v1' in headers
+          assert 'x-aidi-request-id: ci-state-42' in headers
+          assert body['request_id'] == 'ci-state-42'
           assert body['scene']['name']
           assert 0.0 <= float(body['scene']['energy']) <= 1.0
           assert 60 <= int(body['ttl']) <= 3600
           assert body['avatar']['state']
           PY
+
+          BAD_PROTOCOL=$(curl -sS -o /tmp/aidi-bad-protocol.json -w '%{http_code}' \
+            -X POST http://127.0.0.1:8765/api/v1/scene/analyze \
+            -H 'Content-Type: application/json' \
+            -H 'X-AIDI-Protocol: scene-v0' \
+            -d '{"state":{}}')
+          test "$BAD_PROTOCOL" = "400"
+
+          BAD_REQUEST_ID=$(curl -sS -o /tmp/aidi-bad-request-id.json -w '%{http_code}' \
+            -X POST http://127.0.0.1:8765/api/v1/scene/analyze \
+            -H 'Content-Type: application/json' \
+            -H 'X-AIDI-Protocol: scene-v1' \
+            -H 'X-AIDI-Request-Id: header-id' \
+            -d '{"request_id":"body-id","state":{}}')
+          test "$BAD_REQUEST_ID" = "400"
 
       - uses: actions/setup-java@v5
         with:
