@@ -11,6 +11,7 @@ import java.security.SecureRandom;
 import pro.galaxyai.fold7.ai.AIDIClient;
 import pro.galaxyai.fold7.ai.AIState;
 import pro.galaxyai.fold7.ai.AIStateCollector;
+import pro.galaxyai.fold7.ai.AmbientContextCollector;
 import pro.galaxyai.fold7.engine.*;
 
 public class GalaxyAIWallpaperService extends WallpaperService {
@@ -23,7 +24,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
     @Override
     public Engine onCreateEngine() {
         UniverseIdentity identity = loadUniverseIdentity();
-        return new V21Engine(identity.seed, identity.evolutionEpoch);
+        return new V22Engine(identity.seed, identity.evolutionEpoch);
     }
 
     private UniverseIdentity loadUniverseIdentity() {
@@ -52,7 +53,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         }
     }
 
-    private class V21Engine extends Engine {
+    private class V22Engine extends Engine {
         private final Handler handler = new Handler();
         private final FoldProfileManager profile = new FoldProfileManager();
         private final CameraController camera = new CameraController();
@@ -65,12 +66,14 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         private final MotionControllerV6 motion = new MotionControllerV6();
         private final AIStateCollector stateCollector =
                 new AIStateCollector(GalaxyAIWallpaperService.this);
+        private final AmbientContextCollector ambientContext =
+                new AmbientContextCollector(GalaxyAIWallpaperService.this);
         private final AIDIClient aidi = new AIDIClient(GalaxyAIWallpaperService.this);
         private final MemoryAwareUniverseControllerV21 universe;
         private boolean visible;
         private long frameDelayMillis = 37L;
 
-        V21Engine(long universeSeed, long evolutionEpoch) {
+        V22Engine(long universeSeed, long evolutionEpoch) {
             universe = new MemoryAwareUniverseControllerV21(universeSeed, evolutionEpoch);
         }
 
@@ -86,13 +89,19 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         public void onVisibilityChanged(boolean state) {
             visible = state;
             handler.removeCallbacks(loop);
-            if (state) handler.post(loop);
+            if (state) {
+                ambientContext.start();
+                handler.post(loop);
+            } else {
+                ambientContext.stop();
+            }
         }
 
         @Override
         public void onSurfaceDestroyed(SurfaceHolder holder) {
             visible = false;
             handler.removeCallbacks(loop);
+            ambientContext.stop();
             super.onSurfaceDestroyed(holder);
         }
 
@@ -100,6 +109,7 @@ public class GalaxyAIWallpaperService extends WallpaperService {
         public void onDestroy() {
             visible = false;
             handler.removeCallbacks(loop);
+            ambientContext.stop();
             aidi.shutdown();
             super.onDestroy();
         }
@@ -121,15 +131,15 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 fold.update(main);
                 camera.update(fold.getProgress());
 
-                // Battery/display state is collected only when AIDI is due for refresh.
-                // AIDIClient enriches this snapshot with bounded on-device v21 memory.
+                // Context is privacy-bounded: a coarse light bucket and semantic label only.
+                // No raw image/media and no CAMERA permission are used by this runtime.
                 if (aidi.needsRefresh()) {
                     AIState state = stateCollector.capture(
                             main,
                             Math.abs(motion.getPulse()),
                             w,
                             h
-                    );
+                    ).withContext(ambientContext.snapshot());
                     aidi.requestIfNeeded(state);
                 }
 
