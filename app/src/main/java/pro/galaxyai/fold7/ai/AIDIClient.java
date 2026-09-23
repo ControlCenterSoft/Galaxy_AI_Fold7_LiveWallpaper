@@ -5,16 +5,15 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Runtime coordinator for AIDI decisions.
- *
- * Networking is isolated behind AIDIGatewayTransport, so the wallpaper engine
- * never blocks on gateway I/O and can transparently fall back to local logic.
+ * Runtime coordinator for AIDI decisions. Network work stays off the renderer;
+ * every completed decision is summarized into the durable v21 profile store.
  */
 public final class AIDIClient {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean requestInFlight = new AtomicBoolean(false);
     private final LocalFallbackAI fallbackAI = new LocalFallbackAI();
     private final AIDIGatewayTransport transport;
+    private final AIProfileStore profileStore;
 
     private volatile SceneDecision decision = SceneDecision.neutral("bootstrap");
     private volatile long nextRefreshAtMs = 0L;
@@ -22,12 +21,17 @@ public final class AIDIClient {
     private volatile String lastGatewayError = "";
 
     public AIDIClient() {
-        this(new HttpAIDIGatewayTransport());
+        this(new HttpAIDIGatewayTransport(), null);
     }
 
-    public AIDIClient(AIDIGatewayTransport transport) {
+    public AIDIClient(AIProfileStore profileStore) {
+        this(new HttpAIDIGatewayTransport(), profileStore);
+    }
+
+    public AIDIClient(AIDIGatewayTransport transport, AIProfileStore profileStore) {
         if (transport == null) throw new IllegalArgumentException("transport == null");
         this.transport = transport;
+        this.profileStore = profileStore;
     }
 
     public SceneDecision getDecision() {
@@ -54,12 +58,14 @@ public final class AIDIClient {
                     decision = remote;
                     decisionSource = "aidi_gateway";
                     lastGatewayError = "";
+                    if (profileStore != null) profileStore.recordDecision(remote, true);
                     nextRefreshAtMs = System.currentTimeMillis() + clampRemoteTtl(remote.ttlSeconds);
                 } catch (Exception error) {
                     SceneDecision local = fallbackAI.decide(state);
                     decision = local;
                     decisionSource = "local_fallback";
                     lastGatewayError = error.getClass().getSimpleName();
+                    if (profileStore != null) profileStore.recordDecision(local, false);
                     nextRefreshAtMs = System.currentTimeMillis() + fallbackRetryDelay(local.ttlSeconds);
                 } finally {
                     requestInFlight.set(false);
