@@ -14,19 +14,21 @@ import pro.galaxyai.fold7.ai.SceneDecision;
 import pro.galaxyai.fold7.engine.AmbientPersonalityControllerV29;
 import pro.galaxyai.fold7.engine.DeformableLivePortraitV45;
 import pro.galaxyai.fold7.engine.ExpressiveFaceDynamicsV69;
+import pro.galaxyai.fold7.engine.RussianVisemeDynamicsV71;
 import pro.galaxyai.fold7.engine.SpeechFaceSyncV41;
 
 /**
- * v70 Eyelid & Lip Geometry floating torso.
+ * v71 Russian Viseme Coherence floating torso.
  *
- * Keeps v69 expressive gaze/TTS coupling and explicitly forwards natural attention-shift
- * blink cues into the local mesh renderer. Eyelid closure and mouth geometry remain
- * maskless: only source portrait pixels are deformed.
+ * Keeps v70 eyelid geometry and v69 expressive gaze/TTS coupling, while adding broad
+ * Russian vowel-like mouth shapes generated exclusively from the local TTS lifecycle.
+ * The face remains maskless: only source portrait pixels are deformed.
  */
 public final class FloatingAssistantViewV67 extends View {
     private final DeformableLivePortraitV45 portrait;
     private final SpeechFaceSyncV41 speechFace = new SpeechFaceSyncV41();
     private final ExpressiveFaceDynamicsV69 expressiveFace = new ExpressiveFaceDynamicsV69();
+    private final RussianVisemeDynamicsV71 russianViseme = new RussianVisemeDynamicsV71();
     private final AmbientPersonalityControllerV29 personality;
     private final AIDIClient aidi;
     private final AIStateCollector stateCollector;
@@ -95,17 +97,22 @@ public final class FloatingAssistantViewV67 extends View {
 
         SceneDecision decision = aidi.getDecision();
         personality.maybeReact(decision);
-        speechFace.update(
-                personality.isSpeaking(),
-                personality.getSpeechActivity(),
-                decision,
-                dt
-        );
+        boolean speaking = personality.isSpeaking();
+        float speechActivity = personality.getSpeechActivity();
 
+        speechFace.update(speaking, speechActivity, decision, dt);
         expressiveFace.update(
                 decision,
                 speechFace.getMouthOpen(),
                 speechFace.getSpeechEnergy(),
+                dt
+        );
+        russianViseme.update(
+                speaking,
+                speechActivity,
+                expressiveFace.getMouthOpen(),
+                expressiveFace.getSpeechEnergy(),
+                decision,
                 dt
         );
 
@@ -113,10 +120,11 @@ public final class FloatingAssistantViewV67 extends View {
         portrait.requestBlink(blinkCue);
         portrait.update(decision, dt);
         portrait.setGaze(expressiveFace.getGazeX(), expressiveFace.getGazeY());
-        portrait.setMouthOpen(expressiveFace.getMouthOpen());
-        portrait.setSpeechEnergy(expressiveFace.getSpeechEnergy());
+        portrait.setMouthOpen(russianViseme.getMouthOpen());
+        portrait.setSpeechEnergy(russianViseme.getSpeechEnergy());
+        portrait.setMouthShape(russianViseme.getRoundness(), russianViseme.getWidthBias());
 
-        float speech = expressiveFace.getSpeechEnergy();
+        float speech = russianViseme.getSpeechEnergy();
         float gazeActivity = Math.abs(expressiveFace.getGazeX())
                 + Math.abs(expressiveFace.getGazeY());
         motionLevel += ((0.060f + speech * 0.30f + gazeActivity * 0.017f
