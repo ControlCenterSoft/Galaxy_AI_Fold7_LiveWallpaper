@@ -14,7 +14,8 @@ import pro.galaxyai.fold7.R;
 import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
- * Deformable Live Portrait renderer, extended by v46 attentive gaze and v47 micro-expressions.
+ * Deformable Live Portrait renderer, extended by v46 attentive gaze, v47 micro-expressions
+ * and v59 saccade-aware blink coupling.
  *
  * The photoreal portrait remains fully local. A bounded bitmap mesh deforms only original
  * portrait pixels: head/face motion, shoulder breathing, texture blink, attentive gaze,
@@ -44,6 +45,11 @@ public final class DeformableLivePortraitV45 {
     private float mouthOpen;
     private float gazeX;
     private float gazeY;
+    private float externalGazeX;
+    private float externalGazeY;
+    private float gazeMotion;
+    private boolean hasExternalGaze;
+    private float saccadeBlinkCooldown;
     private float touchX;
     private float touchY;
     private float touchWeight;
@@ -78,9 +84,27 @@ public final class DeformableLivePortraitV45 {
         mouthOpen = clamp(value, 0f, 1f);
     }
 
+    /**
+     * v58/v59 shared gaze input. v58 makes this vector authoritative for both eye mesh and
+     * head follow; v59 also derives a privacy-safe local saccade velocity from frame-to-frame
+     * gaze deltas so a fast attention shift may naturally coincide with a brief blink.
+     */
     public void setGaze(float normalizedX, float normalizedY) {
-        gazeX = clamp(normalizedX, -1f, 1f);
-        gazeY = clamp(normalizedY, -1f, 1f);
+        float nx = clamp(normalizedX, -1f, 1f);
+        float ny = clamp(normalizedY, -1f, 1f);
+        if (hasExternalGaze) {
+            float dx = nx - externalGazeX;
+            float dy = ny - externalGazeY;
+            float frameDelta = (float) Math.sqrt(dx * dx + dy * dy);
+            gazeMotion = clamp(frameDelta * 22f, 0f, 2f);
+        } else {
+            hasExternalGaze = true;
+            gazeMotion = 0f;
+        }
+        externalGazeX = nx;
+        externalGazeY = ny;
+        gazeX = nx;
+        gazeY = ny;
     }
 
     public void onTouch(float normalizedX, float normalizedY, boolean pressed) {
@@ -216,15 +240,24 @@ public final class DeformableLivePortraitV45 {
         if ("sleep".equals(emotion)) {
             blinkPhase = 0.18f;
             blinkClock += dt;
+            saccadeBlinkCooldown = 0f;
             return;
         }
 
+        saccadeBlinkCooldown = Math.max(0f, saccadeBlinkCooldown - dt);
         blinkClock += dt;
         float interval = "focused".equals(emotion) ? 4.9f
                 : ("thinking".equals(emotion) ? 3.3f
                 : ("happy".equals(emotion) ? 3.55f : 3.9f));
         interval += (float) Math.sin(time * 0.071f + 0.8f) * 0.42f;
         float duration = 0.22f;
+
+        // v59 Saccade Blink Coupling: a sufficiently fast local gaze transition may advance
+        // the next natural blink. The cooldown prevents repeated blinking during one movement.
+        if (gazeMotion > 0.44f && saccadeBlinkCooldown <= 0f && blinkClock < interval) {
+            blinkClock = interval;
+            saccadeBlinkCooldown = 1.45f;
+        }
 
         if (blinkClock >= interval) {
             float phase = (blinkClock - interval) / duration;
