@@ -44,7 +44,7 @@ public class MainActivity extends Activity {
         root.addView(title, fullWidth());
 
         TextView concept = new TextView(this);
-        concept.setText("Живые обои больше не используются. Вы выбираете любое обычное фото или фон, а маленький живой AI-помощник находится поверх экрана и приложений.");
+        concept.setText("Живые обои больше не используются. Вы выбираете любое обычное фото или фон, а небольшой живой AI-помощник в виде торса девушки находится поверх экрана и приложений без карточки или рамки.");
         concept.setTextSize(15f);
         concept.setPadding(0, dp(10), 0, dp(14));
         root.addView(concept, fullWidth());
@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
         root.addView(wallpaper, buttonParams());
 
         TextView behavior = new TextView(this);
-        behavior.setText("Помощника можно перетаскивать пальцем. Короткое касание переводит его взгляд к точке касания. Моргание, взгляд, микромимика и движение рта формируются локально из mesh-портрета; синтетическая маска поверх лица не рисуется.");
+        behavior.setText("Помощника можно перетаскивать пальцем. Короткое касание переводит взгляд к точке касания. v66 усиливает естественное моргание, микромимику, открывание губ, движение нижней челюсти, шеи и плеч. Всё формируется локально деформацией исходного портрета без синтетической маски поверх лица.");
         behavior.setTextSize(14f);
         behavior.setPadding(0, dp(16), 0, dp(12));
         root.addView(behavior, fullWidth());
