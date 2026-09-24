@@ -17,12 +17,11 @@ import pro.galaxyai.fold7.engine.ExpressiveFaceDynamicsV69;
 import pro.galaxyai.fold7.engine.SpeechFaceSyncV41;
 
 /**
- * v69 Expressive Face Coupling floating torso.
+ * v70 Eyelid & Lip Geometry floating torso.
  *
- * Keeps the borderless v68 floating-presence UX and routes fixation gaze, irregular
- * microsaccades, attention-shift blink cues and Russian TTS articulation through one
- * privacy-safe expressive controller. The face remains maskless: only source portrait
- * pixels are deformed by the inherited mesh renderer.
+ * Keeps v69 expressive gaze/TTS coupling and explicitly forwards natural attention-shift
+ * blink cues into the local mesh renderer. Eyelid closure and mouth geometry remain
+ * maskless: only source portrait pixels are deformed.
  */
 public final class FloatingAssistantViewV67 extends View {
     private final DeformableLivePortraitV45 portrait;
@@ -110,9 +109,8 @@ public final class FloatingAssistantViewV67 extends View {
                 dt
         );
 
-        // The inherited portrait controller still owns eyelid geometry and micro-expression
-        // mesh weights. v69 supplies one authoritative gaze vector; its brief attention pulse
-        // naturally feeds the portrait's existing saccade-aware blink trigger.
+        float blinkCue = expressiveFace.getBlinkCueStrength();
+        portrait.requestBlink(blinkCue);
         portrait.update(decision, dt);
         portrait.setGaze(expressiveFace.getGazeX(), expressiveFace.getGazeY());
         portrait.setMouthOpen(expressiveFace.getMouthOpen());
@@ -121,9 +119,8 @@ public final class FloatingAssistantViewV67 extends View {
         float speech = expressiveFace.getSpeechEnergy();
         float gazeActivity = Math.abs(expressiveFace.getGazeX())
                 + Math.abs(expressiveFace.getGazeY());
-        float blinkActivity = expressiveFace.getBlinkCueStrength();
         motionLevel += ((0.060f + speech * 0.30f + gazeActivity * 0.017f
-                + blinkActivity * 0.018f) - motionLevel)
+                + blinkCue * 0.018f) - motionLevel)
                 * Math.min(1f, dt * 4.4f);
     }
 
