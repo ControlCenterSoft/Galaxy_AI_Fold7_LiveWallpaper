@@ -16,13 +16,12 @@ import pro.galaxyai.fold7.ai.SceneDecision;
 /**
  * Deformable Live Portrait renderer, extended by v46 attentive gaze, v47 micro-expressions,
  * v59 saccade-aware blink coupling, v60 natural blink dynamics, v62 jaw/chin articulation,
- * v66 refined eyelid/lip/jaw/neck articulation and v70 eyelid/lip geometry refinement.
+ * v66 refined eyelid/lip/jaw/neck articulation, v70 eyelid/lip geometry refinement and
+ * v71 Russian pseudo-viseme mouth-shape coherence.
  *
  * The photoreal portrait remains fully local. A bounded bitmap mesh deforms only original
- * portrait pixels: head/face motion, shoulder breathing, texture blink, attentive gaze,
- * emotion-driven brow/cheek/lip micro-expressions and TTS-driven lower-face articulation.
- * No solid eye ovals, facial masks, painted mouth opening, camera, microphone, location
- * or raw-media capture are used.
+ * portrait pixels. No solid eye ovals, facial masks, painted mouth opening, camera,
+ * microphone, location or raw-media capture are used.
  */
 public final class DeformableLivePortraitV45 {
     private static final int MESH_X = 20;
@@ -45,6 +44,8 @@ public final class DeformableLivePortraitV45 {
     private float serenity = 0.72f;
     private float mouthOpen;
     private float speechEnergy;
+    private float mouthRoundBias;
+    private float mouthWidthBias;
     private float gazeX;
     private float gazeY;
     private float externalGazeX;
@@ -97,6 +98,12 @@ public final class DeformableLivePortraitV45 {
         speechEnergy = clamp(value, 0f, 1f);
     }
 
+    /** v71 broad Russian vowel-like shape bias, generated from TTS lifecycle only. */
+    public void setMouthShape(float roundness, float widthBias) {
+        mouthRoundBias = clamp(roundness, 0f, 1f);
+        mouthWidthBias = clamp(widthBias, -1f, 1f);
+    }
+
     /**
      * v70 explicit local blink cue. The expressive controller can request a blink at a natural
      * attention shift or Russian TTS phrase boundary without drawing synthetic eyelids.
@@ -105,11 +112,6 @@ public final class DeformableLivePortraitV45 {
         requestedBlinkStrength = Math.max(requestedBlinkStrength, clamp(strength, 0f, 1f));
     }
 
-    /**
-     * v58/v59 shared gaze input. v58 makes this vector authoritative for both eye mesh and
-     * head follow; v59 also derives a privacy-safe local saccade velocity from frame-to-frame
-     * gaze deltas so a fast attention shift may naturally coincide with a brief blink.
-     */
     public void setGaze(float normalizedX, float normalizedY) {
         float nx = clamp(normalizedX, -1f, 1f);
         float ny = clamp(normalizedY, -1f, 1f);
@@ -226,9 +228,6 @@ public final class DeformableLivePortraitV45 {
                 dy += gazeY * srcH * 0.0027f * eyeWeight;
                 float localBlink = Math.min(1f,
                         blinkAmountLeft * eyeLeft + blinkAmountRight * eyeRight);
-                // v70 eyelid geometry: upper lid still carries most of the closure while the
-                // lower lid participates softly; the phase curve now includes a tiny full-close
-                // plateau so the texture reads as a blink rather than a vertical squash.
                 float upperLid = ny < EYE_Y ? 1f : 0f;
                 float lowerLid = 1f - upperLid;
                 float lidTravel = upperLid * 1.05f + lowerLid * 0.55f;
@@ -254,13 +253,20 @@ public final class DeformableLivePortraitV45 {
                         * gaussian(ny, MOUTH_Y, 0.043f);
                 float upperLip = ny < MOUTH_Y ? 1f : 0f;
                 float lowerLip = 1f - upperLip;
-                float mouthRoundness = clamp((mouthOpen - 0.18f) / 0.72f, 0f, 1f);
-                float lowerTravel = 0.0094f + mouthRoundness * 0.0028f;
+                float openingRoundness = clamp((mouthOpen - 0.18f) / 0.72f, 0f, 1f);
+                float mouthRoundness = clamp(openingRoundness * 0.55f
+                        + mouthRoundBias * 0.70f, 0f, 1f);
+                float widthInfluence = clamp(mouthWidthBias, -1f, 1f);
+                float lowerTravel = 0.0092f + mouthRoundness * 0.0030f;
                 dy += mouthOpen * srcH * mouthWeight
                         * (-0.0035f * upperLip + lowerTravel * lowerLip);
-                // Small openings stay wider; larger vowel-like openings become rounder.
-                float horizontalClose = 0.070f + mouthRoundness * 0.082f;
+                // Positive width bias (И/А-like) opens the corners; negative bias (У/О-like)
+                // narrows the lips. Large roundness still produces an oval opening.
+                float horizontalClose = clamp(0.070f + mouthRoundness * 0.086f
+                        - widthInfluence * 0.034f, 0.035f, 0.19f);
                 dx += (MOUTH_X - nx) * srcW * mouthOpen * mouthWeight * horizontalClose;
+                dx += (nx < MOUTH_X ? -1f : 1f)
+                        * widthInfluence * speechEnergy * mouthWeight * srcW * 0.00085f;
 
                 float cornerDistance = Math.abs(nx - MOUTH_X);
                 float cornerWeight = mouthWeight * clamp(cornerDistance / 0.065f, 0f, 1f);
