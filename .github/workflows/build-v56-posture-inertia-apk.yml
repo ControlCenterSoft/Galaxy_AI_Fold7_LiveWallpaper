@@ -1,0 +1,100 @@
+name: Build Galaxy AI Fold7 v56.0 Natural Posture Inertia APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v56-posture-inertia
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v56 posture and inherited AI contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          posture = Path('app/src/main/java/pro/galaxyai/fold7/engine/PostureInertiaV56.java').read_text()
+          idle = Path('app/src/main/java/pro/galaxyai/fold7/engine/ContextualIdlePresenceV50.java').read_text()
+          head = Path('app/src/main/java/pro/galaxyai/fold7/engine/HeadEyeCoordinationV49.java').read_text()
+          intent = Path('app/src/main/java/pro/galaxyai/fold7/engine/UnifiedGazeIntentV54.java').read_text()
+          avatar = Path('app/src/main/java/pro/galaxyai/fold7/engine/DeformableLivePortraitV45.java').read_text()
+          personality = Path('app/src/main/java/pro/galaxyai/fold7/ai/RussianAIPersonalityV33.java').read_text()
+          state = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIState.java').read_text()
+          fallback = Path('app/src/main/java/pro/galaxyai/fold7/ai/LocalFallbackAI.java').read_text()
+          gradle = Path('app/build.gradle').read_text()
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+
+          for token in ['v56 Natural Posture Inertia', 'stepVelocity(', 'vScale', 'spring-damper']:
+              assert token in posture, token
+          for token in ['new PostureInertiaV56()', 'postureInertia.update(', 'postureInertia.getX()']:
+              assert token in idle, token
+          assert 'v55 Anticipatory Head Follow' in head
+          assert 'Unified Gaze Intent' in intent
+          assert 'drawBitmapMesh' in avatar
+          assert 'LOCALE_TAG = "ru-RU"' in personality
+          assert 'LANGUAGE = "ru"' in personality
+          for token in ['"locale"', 'RussianAIPersonalityV33.LOCALE_TAG', '"language"']:
+              assert token in state, token
+          assert 'local-fallback' in fallback
+          assert "versionCode 560" in gradle
+          assert "versionName '56.0'" in gradle
+          assert 'Galaxy AI Fold7 v56' in manifest
+          for forbidden in ['android.permission.CAMERA', 'android.permission.RECORD_AUDIO', 'android.permission.ACCESS_FINE_LOCATION']:
+              assert forbidden not in manifest, forbidden
+          PY
+
+      - name: Verify inherited photoreal portrait
+        run: |
+          cat app/src/main/res/raw/ai_avatar_v36_1.txt app/src/main/res/raw/ai_avatar_v36_2.txt app/src/main/res/raw/ai_avatar_v36_3.txt app/src/main/res/raw/ai_avatar_v36_4.txt | base64 -d > /tmp/ai_avatar_v36.webp
+          test -s /tmp/ai_avatar_v36.webp
+          echo "752d82f39826a77a8dd1eec72041a8a8aaa8ae559eb5f6381c8068135a64e133  /tmp/ai_avatar_v36.webp" | sha256sum -c -
+
+      - name: Verify inherited AIDI gateway stack compiles
+        run: python3 -m py_compile aidi_gateway/*.py gateway_simulator/*.py
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v56.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify v56 APK metadata, permissions and signature
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Fold7_LiveWallpaper_v56.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Fold7_LiveWallpaper_v56.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='560'"
+          echo "$BADGING" | grep -q "versionName='56.0'"
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Fold7_LiveWallpaper_v56.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Fold7_LiveWallpaper_v56.0.apk
+          sha256sum Galaxy_AI_Fold7_LiveWallpaper_v56.0.apk | tee Galaxy_AI_Fold7_LiveWallpaper_v56.0.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Fold7_LiveWallpaper_v56.0
+          path: |
+            Galaxy_AI_Fold7_LiveWallpaper_v56.0.apk
+            Galaxy_AI_Fold7_LiveWallpaper_v56.0.sha256
+          if-no-files-found: error
+          retention-days: 30
