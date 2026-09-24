@@ -15,11 +15,11 @@ import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
  * Deformable Live Portrait renderer, extended by v46 attentive gaze, v47 micro-expressions,
- * v59 saccade-aware blink coupling and v60 natural blink dynamics.
+ * v59 saccade-aware blink coupling, v60 natural blink dynamics and v62 jaw/chin articulation.
  *
  * The photoreal portrait remains fully local. A bounded bitmap mesh deforms only original
  * portrait pixels: head/face motion, shoulder breathing, texture blink, attentive gaze,
- * emotion-driven brow/cheek/lip micro-expressions and TTS-driven mouth articulation.
+ * emotion-driven brow/cheek/lip micro-expressions and TTS-driven lower-face articulation.
  * No solid eye ovals, facial masks, painted mouth opening, camera, microphone, location
  * or raw-media capture are used.
  */
@@ -213,7 +213,6 @@ public final class DeformableLivePortraitV45 {
                         blinkAmountLeft * eyeLeft + blinkAmountRight * eyeRight);
                 dy += (EYE_Y - ny) * srcH * localBlink * 0.82f;
 
-                // v47 eyebrow expression deforms the original brow/forehead pixels.
                 float browLeft = gaussian(nx, 0.405f, 0.105f) * gaussian(ny, 0.294f, 0.035f);
                 float browRight = gaussian(nx, 0.625f, 0.105f) * gaussian(ny, 0.294f, 0.035f);
                 float browWeight = Math.min(1f, browLeft + browRight);
@@ -222,7 +221,6 @@ public final class DeformableLivePortraitV45 {
                 dx += centerPull * browPinch * srcW * 0.017f * browWeight;
                 dy += browPinch * srcH * 0.0018f * browWeight;
 
-                // v47 cheek lift uses original skin pixels and remains intentionally subtle.
                 float cheekLeft = gaussian(nx, 0.395f, 0.12f) * gaussian(ny, 0.445f, 0.07f);
                 float cheekRight = gaussian(nx, 0.665f, 0.12f) * gaussian(ny, 0.445f, 0.07f);
                 float cheekWeight = Math.min(1f, cheekLeft + cheekRight);
@@ -238,6 +236,13 @@ public final class DeformableLivePortraitV45 {
                 float cornerWeight = mouthWeight * clamp(cornerDistance / 0.065f, 0f, 1f);
                 dy -= smile * srcH * 0.0041f * cornerWeight;
                 dx += (nx < MOUTH_X ? -1f : 1f) * smile * srcW * 0.0019f * cornerWeight;
+
+                // v62 Jaw & Chin Articulation: extend the already-smoothed local TTS mouth
+                // envelope into the lower face so speech does not look like isolated lip warping.
+                float jawWeight = gaussian(nx, 0.545f, 0.19f) * gaussian(ny, 0.585f, 0.095f);
+                float chinWeight = gaussian(nx, 0.545f, 0.14f) * gaussian(ny, 0.625f, 0.070f);
+                dy += mouthOpen * srcH * (0.0022f * jawWeight + 0.0046f * chinWeight);
+                dx += (nx < 0.545f ? -1f : 1f) * mouthOpen * srcW * 0.0009f * jawWeight;
 
                 verts[p++] = x + dx;
                 verts[p++] = y + dy;
@@ -267,15 +272,11 @@ public final class DeformableLivePortraitV45 {
                 : ("thinking".equals(emotion) ? 0.195f
                 : ("happy".equals(emotion) ? 0.235f : 0.225f));
 
-        // v59 Saccade Blink Coupling: a sufficiently fast local gaze transition may advance
-        // the next natural blink. The cooldown prevents repeated blinking during one movement.
         if (gazeMotion > 0.44f && saccadeBlinkCooldown <= 0f && blinkClock < interval) {
             blinkClock = interval;
             saccadeBlinkCooldown = 1.45f;
         }
 
-        // v60 Natural Blink Dynamics: occasionally follow a completed natural blink with a
-        // brief second blink. Timing is deterministic and local so behavior stays reproducible.
         if (doubleBlinkDelay > 0f) {
             doubleBlinkDelay -= dt;
             if (doubleBlinkDelay <= 0f) {
