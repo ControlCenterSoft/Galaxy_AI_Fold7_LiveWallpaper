@@ -1,0 +1,140 @@
+name: Build Galaxy AI v71.0 Russian Viseme Coherence APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v71-russian-viseme-coherence
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v71 Russian viseme coherence contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+          service = Path('app/src/main/java/pro/galaxyai/fold7/FloatingAssistantService.java').read_text()
+          view = Path('app/src/main/java/pro/galaxyai/fold7/FloatingAssistantViewV67.java').read_text()
+          expressive = Path('app/src/main/java/pro/galaxyai/fold7/engine/ExpressiveFaceDynamicsV69.java').read_text()
+          viseme = Path('app/src/main/java/pro/galaxyai/fold7/engine/RussianVisemeDynamicsV71.java').read_text()
+          portrait = Path('app/src/main/java/pro/galaxyai/fold7/engine/DeformableLivePortraitV45.java').read_text()
+          speech = Path('app/src/main/java/pro/galaxyai/fold7/engine/SpeechFaceSyncV41.java').read_text()
+          state = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIState.java').read_text()
+          personality = Path('app/src/main/java/pro/galaxyai/fold7/ai/RussianAIPersonalityV33.java').read_text()
+          gradle = Path('app/build.gradle').read_text()
+
+          # Floating overlay + v68 UX remain intact; wallpaper runtime stays removed.
+          assert 'android.permission.SYSTEM_ALERT_WINDOW' in manifest
+          assert 'FloatingAssistantService' in manifest
+          assert 'BIND_WALLPAPER' not in manifest
+          assert 'android.software.live_wallpaper' not in manifest
+          assert 'GalaxyAIWallpaperService' not in manifest
+          assert 'TYPE_APPLICATION_OVERLAY' in service
+          assert 'KEY_X_FRACTION' in service and 'KEY_Y_FRACTION' in service
+          assert 'KEY_COLLAPSED' in service and 'KEY_DOCK' in service
+          assert 'dockToNearestEdge' in service
+          assert 'onConfigurationChanged' in service
+
+          # v69/v70 face dynamics remain active.
+          assert 'ExpressiveFaceDynamicsV69' in view
+          assert 'updateAttentionPulse' in expressive
+          assert 'portrait.requestBlink(blinkCue)' in view
+          assert 'requestBlink(float strength)' in portrait
+          assert 'closeEnd = 0.37f' in portrait
+          assert 'holdEnd = 0.49f' in portrait
+
+          # v71 Russian pseudo-viseme shapes are generated from TTS lifecycle and reach the mesh.
+          assert 'RussianVisemeDynamicsV71' in view
+          assert 'russianViseme.update' in view
+          assert 'personality.isSpeaking()' in view
+          assert 'personality.getSpeechActivity()' in view
+          assert 'portrait.setMouthOpen(russianViseme.getMouthOpen())' in view
+          assert 'portrait.setSpeechEnergy(russianViseme.getSpeechEnergy())' in view
+          assert 'portrait.setMouthShape(russianViseme.getRoundness(), russianViseme.getWidthBias())' in view
+          assert 'chooseNextViseme' in viseme
+          assert 'getRoundness' in viseme and 'getWidthBias' in viseme
+          assert 'setMouthShape(float roundness, float widthBias)' in portrait
+          assert 'mouthRoundBias' in portrait and 'mouthWidthBias' in portrait
+          assert 'horizontalClose' in portrait and 'widthInfluence' in portrait
+
+          # Speech stays maskless and sensor-free.
+          assert 'phrasePauseClock' in speech
+          assert 'drawOval' not in speech
+          assert 'drawPath' not in speech
+          assert 'Canvas' not in speech
+          assert 'audio buffers' in viseme
+          assert 'microphone input' in viseme
+
+          # Russian and privacy contracts.
+          assert '"locale"' in state
+          assert 'RussianAIPersonalityV33.LOCALE_TAG' in state
+          assert '"language"' in state
+          assert 'LOCALE_TAG = "ru-RU"' in personality
+          for forbidden in [
+              'android.permission.CAMERA',
+              'android.permission.RECORD_AUDIO',
+              'android.permission.ACCESS_FINE_LOCATION'
+          ]:
+              assert forbidden not in manifest, forbidden
+
+          assert "versionCode 710" in gradle
+          assert "versionName '71.0'" in gradle
+          assert 'Galaxy AI v71' in manifest
+          PY
+
+      - name: Verify inherited AIDI gateway stack compiles
+        run: python3 -m py_compile aidi_gateway/*.py gateway_simulator/*.py
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v71.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify v71 APK metadata permissions signature and checksum
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Floating_Assistant_v71.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Floating_Assistant_v71.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='710'"
+          echo "$BADGING" | grep -q "versionName='71.0'"
+
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Floating_Assistant_v71.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          echo "$PERMS" | grep -q 'android.permission.SYSTEM_ALERT_WINDOW'
+          echo "$PERMS" | grep -q 'android.permission.FOREGROUND_SERVICE'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Floating_Assistant_v71.0.apk
+          sha256sum Galaxy_AI_Floating_Assistant_v71.0.apk | tee Galaxy_AI_Floating_Assistant_v71.0.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Floating_Assistant_v71.0
+          path: |
+            Galaxy_AI_Floating_Assistant_v71.0.apk
+            Galaxy_AI_Floating_Assistant_v71.0.sha256
+          if-no-files-found: error
+          retention-days: 30
