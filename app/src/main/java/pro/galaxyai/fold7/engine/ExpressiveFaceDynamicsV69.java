@@ -3,16 +3,12 @@ package pro.galaxyai.fold7.engine;
 import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
- * v69 Expressive Face Coupling.
+ * v69 Expressive Face Coupling, refined by v72 conversational blink timing.
  *
- * Keeps the privacy-safe v67 gaze/head controller, but adds a deterministic human-like
- * attention pulse that couples a small saccade to the portrait's existing saccade-aware
- * blink system. Russian TTS articulation is also reshaped so the mouth opens briskly,
- * settles through syllables and closes softly during micro-pauses instead of behaving as
- * a uniform oscillator.
- *
- * All signals are generated from local AI/TTS state. No camera, microphone, biometrics,
- * precise location or raw media are read or transmitted.
+ * Keeps the privacy-safe v67 gaze/head controller, adds deterministic human-like attention
+ * pulses and couples natural blinks to attention shifts and Russian TTS phrase boundaries.
+ * Speech articulation remains local and damped. No camera, microphone, biometrics, precise
+ * location or raw media are read or transmitted.
  */
 public final class ExpressiveFaceDynamicsV69 {
     private final NaturalFaceDynamicsV67 base = new NaturalFaceDynamicsV67();
@@ -24,6 +20,8 @@ public final class ExpressiveFaceDynamicsV69 {
     private float pulseX;
     private float pulseY;
     private int pulseIndex;
+    private float blinkCue;
+    private float blinkRefractory;
 
     private float mouth;
     private float mouthVelocity;
@@ -53,12 +51,13 @@ public final class ExpressiveFaceDynamicsV69 {
     public void onTouch(float normalizedX, float normalizedY, boolean pressed) {
         base.onTouch(normalizedX, normalizedY, pressed);
         if (pressed) {
-            // A deliberate touch becomes the current fixation and suppresses autonomous
-            // pulse noise for a short period so the assistant feels attentive, not twitchy.
+            // Direct user attention should feel intentional, not twitchy.
             attentionClock = 0f;
             pulseClock = 0f;
             pulseX = 0f;
             pulseY = 0f;
+            blinkCue = 0f;
+            blinkRefractory = Math.max(blinkRefractory, 0.45f);
         }
     }
 
@@ -92,16 +91,26 @@ public final class ExpressiveFaceDynamicsV69 {
 
     public float getBlinkCueStrength() {
         float magnitude = (float) Math.sqrt(pulseX * pulseX + pulseY * pulseY);
-        return clamp(magnitude / 0.040f, 0f, 1f);
+        float saccadeCue = clamp(magnitude / 0.040f, 0f, 1f);
+        return Math.max(saccadeCue, clamp(blinkCue, 0f, 1f));
     }
 
     private void updateAttentionPulse(float rawSpeech, float dt) {
         attentionClock += dt;
         pulseClock = Math.max(0f, pulseClock - dt);
+        blinkRefractory = Math.max(0f, blinkRefractory - dt);
+        blinkCue *= (float) Math.pow(0.020f, dt);
+        if (blinkCue < 0.005f) blinkCue = 0f;
 
         boolean phraseBoundary = previousRawSpeech > 0.34f && rawSpeech < 0.13f;
         boolean timed = attentionClock >= nextAttentionPulse;
         boolean allowed = !"sleep".equals(emotion);
+
+        if (!allowed) {
+            blinkCue = 0f;
+            pulseX *= (float) Math.pow(0.02f, dt);
+            pulseY *= (float) Math.pow(0.02f, dt);
+        }
 
         if (allowed && (timed || phraseBoundary)) {
             pulseIndex++;
@@ -114,11 +123,28 @@ public final class ExpressiveFaceDynamicsV69 {
             float amplitude = "focused".equals(emotion) ? 0.021f
                     : ("thinking".equals(emotion) ? 0.038f
                     : ("happy".equals(emotion) ? 0.034f : 0.029f));
-            if (phraseBoundary) amplitude *= 0.86f;
+            if (phraseBoundary) amplitude *= 0.82f;
 
             pulseX = direction * amplitude * (0.76f + Math.abs(jitter) * 0.24f);
             pulseY = vertical * amplitude * 0.34f;
             pulseClock = 0.115f;
+
+            // v72: conversational blinks are explicit rather than relying only on eye velocity.
+            // Phrase endings are the strongest cue; autonomous attention shifts blink less often.
+            if (blinkRefractory <= 0f) {
+                if (phraseBoundary) {
+                    blinkCue = "focused".equals(emotion) ? 0.66f : 0.92f;
+                    blinkRefractory = 1.55f;
+                } else {
+                    float chance = hashUnit(pulseIndex * 97 + 23);
+                    float threshold = "thinking".equals(emotion) ? 0.48f
+                            : ("happy".equals(emotion) ? 0.58f : 0.64f);
+                    if (chance > threshold) {
+                        blinkCue = 0.58f + (chance - threshold) * 0.72f;
+                        blinkRefractory = 1.85f;
+                    }
+                }
+            }
 
             float intervalBase = "focused".equals(emotion) ? 4.8f
                     : ("thinking".equals(emotion) ? 2.9f
@@ -129,9 +155,6 @@ public final class ExpressiveFaceDynamicsV69 {
 
         if (pulseClock > 0f) {
             float normalized = 1f - pulseClock / 0.115f;
-            // Fast eye lead, soft settle. The frame-to-frame gaze delta is intentionally large
-            // enough to feed the inherited saccade-aware blink trigger, but small enough to
-            // remain visually subtle on the portrait itself.
             float envelope = normalized < 0.28f
                     ? smoothStep(normalized / 0.28f)
                     : 1f - smoothStep((normalized - 0.28f) / 0.72f);
@@ -149,7 +172,6 @@ public final class ExpressiveFaceDynamicsV69 {
         float baseMouth = base.getMouthOpen();
         float baseSpeech = base.getSpeechEnergy();
 
-        // Brief falling speech energy is treated as a local phrase/syllable micro-pause.
         float speechDrop = clamp(previousRawSpeech - rawSpeech, 0f, 1f);
         pauseAccent += ((speechDrop > 0.15f ? 1f : 0f) - pauseAccent)
                 * Math.min(1f, dt * (speechDrop > 0.15f ? 16f : 6f));
@@ -163,8 +185,6 @@ public final class ExpressiveFaceDynamicsV69 {
                 0f,
                 0.93f);
 
-        // Faster opening than closing, but critically damped enough to avoid a rubber-mouth
-        // snap. The portrait's lower lip/jaw/chin mesh carries the visible articulation.
         float stiffness = targetMouth > mouth ? 46f : 24f;
         float damping = targetMouth > mouth ? 13.2f : 9.8f;
         mouthVelocity += ((targetMouth - mouth) * stiffness - mouthVelocity * damping) * dt;
