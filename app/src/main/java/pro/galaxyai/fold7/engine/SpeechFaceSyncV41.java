@@ -12,11 +12,11 @@ import android.graphics.Shader;
 import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
- * v41 privacy-safe speech face synchronizer.
+ * Privacy-safe speech face synchronizer, extended in v61 with syllabic articulation timing.
  *
- * Animates a subtle mouth opening/highlight from the local TTS lifecycle envelope only.
- * It never reads microphone samples, audio buffers or network media. The geometry is tied
- * to the bundled v36 portrait crop and remains completely local.
+ * Mouth motion is synthesized only from the local Russian TTS lifecycle/activity envelope.
+ * It never reads microphone samples, audio buffers or network media. The resulting scalar
+ * drives the bundled photoreal portrait mesh; no sensor-based lip tracking is used.
  */
 public final class SpeechFaceSyncV41 {
     private static final float PORTRAIT_W = 941f;
@@ -31,6 +31,10 @@ public final class SpeechFaceSyncV41 {
     private float targetOpen;
     private float speechEnergy;
     private float time;
+    private float articulationClock;
+    private float articulationTarget;
+    private int articulationIndex;
+    private boolean wasSpeaking;
     private String emotion = "calm";
 
     public SpeechFaceSyncV41() {
@@ -47,17 +51,42 @@ public final class SpeechFaceSyncV41 {
 
         float a = clamp(activity, 0f, 1f);
         if (speaking) {
-            // Avoid a mechanical binary flap: preserve a small resting gap and blend the
-            // synthetic Russian-TTS envelope with two local harmonic components.
-            float harmonic = 0.5f + 0.5f * (float) Math.sin(time * 20.6f + 0.35f);
-            targetOpen = clamp(0.12f + a * 0.68f + harmonic * 0.16f, 0.08f, 0.96f);
+            if (!wasSpeaking) {
+                articulationClock = 0f;
+                articulationTarget = 0.24f + a * 0.36f;
+                articulationIndex++;
+            }
+
+            articulationClock -= dt;
+            if (articulationClock <= 0f) {
+                articulationIndex++;
+                float primary = (float) Math.sin(articulationIndex * 2.399963f + time * 0.11f);
+                float secondary = (float) Math.sin(articulationIndex * 1.173f + 1.2f);
+                float shape = clamp(0.50f + primary * 0.34f + secondary * 0.16f, 0f, 1f);
+                float floor = "focused".equals(emotion) ? 0.08f : 0.11f;
+                float range = "happy".equals(emotion) ? 0.72f : 0.64f;
+                articulationTarget = clamp(floor + a * (0.38f + range * shape), 0.06f, 0.94f);
+
+                float cadence = 0.50f + 0.50f
+                        * (float) Math.sin(articulationIndex * 1.618034f + 0.45f);
+                articulationClock = 0.075f + cadence * 0.095f;
+                if ("thinking".equals(emotion)) articulationClock *= 1.06f;
+                if ("happy".equals(emotion)) articulationClock *= 0.94f;
+            }
+
+            targetOpen = articulationTarget;
             speechEnergy += (a - speechEnergy) * Math.min(1f, dt * 8.0f);
         } else {
             targetOpen = 0f;
+            articulationClock = 0f;
+            articulationTarget = 0f;
             speechEnergy += (0f - speechEnergy) * Math.min(1f, dt * 5.0f);
         }
+        wasSpeaking = speaking;
 
-        float speed = targetOpen > mouthOpen ? 12.5f : 9.0f;
+        // v61 uses asymmetric inertia: openings arrive briskly while closures settle a little
+        // more softly, which avoids a fixed-frequency jaw flap while keeping speech responsive.
+        float speed = targetOpen > mouthOpen ? 13.8f : 10.2f;
         mouthOpen += (targetOpen - mouthOpen) * Math.min(1f, dt * speed);
         if (mouthOpen < 0.01f) mouthOpen = 0f;
     }
@@ -73,8 +102,6 @@ public final class SpeechFaceSyncV41 {
         float portraitFocus = mainDisplay ? 0.43f : 0.47f;
         float top = cropTravel * portraitFocus;
 
-        // Coordinates measured against the bundled portrait, intentionally conservative
-        // so the effect reads as lip articulation instead of a painted mask.
         float cx = left + drawW * 0.548f;
         float cy = top + drawH * 0.517f;
         float mouthW = drawW * 0.118f;
