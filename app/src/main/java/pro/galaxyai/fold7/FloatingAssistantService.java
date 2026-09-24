@@ -25,7 +25,7 @@ public final class FloatingAssistantService extends Service {
 
     private WindowManager windowManager;
     private WindowManager.LayoutParams params;
-    private FloatingAssistantViewV66 assistantView;
+    private FloatingAssistantViewV67 assistantView;
 
     private float downRawX;
     private float downRawY;
@@ -103,7 +103,7 @@ public final class FloatingAssistantService extends Service {
         params.y = getSharedPreferences(PREFS, MODE_PRIVATE)
                 .getInt(KEY_Y, dp(120));
 
-        assistantView = new FloatingAssistantViewV66(this);
+        assistantView = new FloatingAssistantViewV67(this);
         assistantView.setOnTouchListener((v, event) -> handleTouch(event));
         windowManager.addView(assistantView, params);
         clampAndApply();
