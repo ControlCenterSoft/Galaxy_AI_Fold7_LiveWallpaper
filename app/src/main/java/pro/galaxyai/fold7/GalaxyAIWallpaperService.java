@@ -198,6 +198,8 @@ public class GalaxyAIWallpaperService extends WallpaperService {
                 personality.update(deltaSeconds);
                 avatar.update(decision, deltaSeconds);
                 coordinationGaze.update(decision, deltaSeconds);
+                // v58: one gaze source drives both the portrait eye mesh and head follow.
+                avatar.setGaze(coordinationGaze.getGazeX(), coordinationGaze.getGazeY());
                 headEye.update(
                         decision,
                         coordinationGaze.getGazeX(),
