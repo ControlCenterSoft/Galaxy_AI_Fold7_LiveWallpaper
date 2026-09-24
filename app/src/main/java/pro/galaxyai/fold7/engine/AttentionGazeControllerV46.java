@@ -3,14 +3,16 @@ package pro.galaxyai.fold7.engine;
 import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
- * v46 Attentive Gaze controller, upgraded in v48 with Natural Fixation Gaze.
+ * v46 Attentive Gaze controller, upgraded by v48 Natural Fixation Gaze and v54 Unified Gaze Intent.
  *
- * v48 replaces the continuously wandering sinusoidal look with short fixation periods,
- * bounded saccades and critically damped settling. Touch temporarily becomes the fixation
- * target, then gaze returns to a local privacy-safe idle pattern. No camera, face tracking,
+ * v54 moves fixation planning into a deterministic shared contract. Every controller instance
+ * receives the same bounded fixation sequence from the same AI state, so eye-mesh motion and
+ * head/eye coordination remain behaviourally aligned. Touch temporarily becomes the fixation
+ * target, then gaze returns to the local privacy-safe plan. No camera, face tracking,
  * microphone, precise location or sensor stream is read.
  */
 public final class AttentionGazeControllerV46 {
+    private final UnifiedGazeIntentV54 gazeIntent = new UnifiedGazeIntentV54();
     private float time;
     private float targetX;
     private float targetY;
@@ -63,8 +65,6 @@ public final class AttentionGazeControllerV46 {
         targetX = clamp(fixationX + microX + touchX * touchGain, -0.92f, 0.92f);
         targetY = clamp(fixationY + microY + touchY * touchGain * 0.72f, -0.78f, 0.78f);
 
-        // v48 Natural Fixation: spring-damper motion gives a quick saccade followed by a
-        // soft settle instead of a robotic linear interpolation.
         float spring = "sleep".equals(emotion) ? 6.0f
                 : ("focused".equals(emotion) ? 24.0f : 31.0f);
         float damping = "sleep".equals(emotion) ? 5.4f : 8.8f;
@@ -84,30 +84,11 @@ public final class AttentionGazeControllerV46 {
 
     private void chooseFixation() {
         fixationIndex++;
-        float emotionGain = "focused".equals(emotion) ? 0.30f
-                : ("thinking".equals(emotion) ? 0.86f
-                : ("happy".equals(emotion) ? 0.66f
-                : ("sleep".equals(emotion) ? 0.02f : 0.52f)));
-        float curiosityGain = 0.62f + curiosity * 0.38f;
-        float calmGain = 0.78f + (1f - serenity) * 0.22f;
-        float phase = fixationIndex * 1.6180339f;
-
-        fixationX = (float) Math.sin(phase * 1.73f + 0.31f)
-                * 0.34f * emotionGain * curiosityGain;
-        fixationY = (float) Math.sin(phase * 1.11f + 1.27f)
-                * 0.19f * emotionGain * calmGain;
-
-        // Occasionally look near the viewer/centre for a more attentive presence.
-        if ((fixationIndex % 4) == 0 || focus > 0.78f) {
-            fixationX *= 0.24f;
-            fixationY *= 0.22f;
-        }
-
-        float base = "focused".equals(emotion) ? 2.35f
-                : ("thinking".equals(emotion) ? 1.22f
-                : ("sleep".equals(emotion) ? 4.8f : 1.75f));
-        float variation = 0.45f + 0.55f * Math.abs((float) Math.sin(phase * 0.73f));
-        fixationDuration = base + variation * ("sleep".equals(emotion) ? 1.4f : 0.95f);
+        UnifiedGazeIntentV54.Target next = gazeIntent.next(
+                fixationIndex, emotion, focus, curiosity, serenity);
+        fixationX = next.x;
+        fixationY = next.y;
+        fixationDuration = next.durationSeconds;
     }
 
     public void onTouch(float normalizedX, float normalizedY, boolean pressed) {
@@ -115,7 +96,6 @@ public final class AttentionGazeControllerV46 {
         touchY = clamp(normalizedY, -1f, 1f);
         if (pressed) {
             touchWeight = 1f;
-            // Lock the current fixation briefly so touch attention does not fight idle gaze.
             fixationClock = 0f;
             fixationDuration = Math.max(fixationDuration, 1.15f);
         } else {
@@ -129,6 +109,10 @@ public final class AttentionGazeControllerV46 {
 
     public float getGazeY() {
         return clamp(gazeY, -1f, 1f);
+    }
+
+    public float getGazeSpeed() {
+        return clamp((float) Math.sqrt(gazeVelocityX * gazeVelocityX + gazeVelocityY * gazeVelocityY), 0f, 2f);
     }
 
     private static String normalizeEmotion(String value) {
