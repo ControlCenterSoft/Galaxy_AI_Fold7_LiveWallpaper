@@ -78,8 +78,26 @@ public class MainActivity extends Activity {
         });
         root.addView(wallpaper, buttonParams());
 
+        TextView sizeTitle = new TextView(this);
+        sizeTitle.setText("Размер помощника");
+        sizeTitle.setTextSize(16f);
+        sizeTitle.setPadding(0, dp(16), 0, dp(6));
+        root.addView(sizeTitle, fullWidth());
+
+        Button compact = button("Компактный — 82%");
+        compact.setOnClickListener(v -> setAssistantScale(0.82f));
+        root.addView(compact, buttonParams());
+
+        Button normal = button("Обычный — 100%");
+        normal.setOnClickListener(v -> setAssistantScale(1.0f));
+        root.addView(normal, buttonParams());
+
+        Button large = button("Крупный — 122%");
+        large.setOnClickListener(v -> setAssistantScale(1.22f));
+        root.addView(large, buttonParams());
+
         TextView behavior = new TextView(this);
-        behavior.setText("Помощника можно перетаскивать пальцем. Короткое касание переводит взгляд к точке касания. v66 усиливает естественное моргание, микромимику, открывание губ, движение нижней челюсти, шеи и плеч. Всё формируется локально деформацией исходного портрета без синтетической маски поверх лица.");
+        behavior.setText("Перетаскивайте помощника пальцем — после отпускания он мягко привязывается к ближайшему краю. Двойное касание сворачивает или разворачивает его. Размер, сторона, положение и состояние сохраняются. При переходе между внешним и внутренним экраном Fold позиция пересчитывается по безопасной области дисплея. v67 сохраняет естественные микросаккады, координацию глаз и головы, моргание и мягкую русскую TTS-артикуляцию.");
         behavior.setTextSize(14f);
         behavior.setPadding(0, dp(16), 0, dp(12));
         root.addView(behavior, fullWidth());
@@ -146,6 +164,18 @@ public class MainActivity extends Activity {
             return;
         }
         Intent service = new Intent(this, FloatingAssistantService.class);
+        startForegroundService(service);
+        refreshOverlayStatus();
+    }
+
+    private void setAssistantScale(float scale) {
+        if (!Settings.canDrawOverlays(this)) {
+            openOverlayPermission();
+            return;
+        }
+        Intent service = new Intent(this, FloatingAssistantService.class);
+        service.setAction(FloatingAssistantService.ACTION_SET_SCALE);
+        service.putExtra(FloatingAssistantService.EXTRA_SCALE, scale);
         startForegroundService(service);
         refreshOverlayStatus();
     }
