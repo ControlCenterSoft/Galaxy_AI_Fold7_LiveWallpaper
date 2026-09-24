@@ -13,20 +13,21 @@ import pro.galaxyai.fold7.ai.AIStateCollector;
 import pro.galaxyai.fold7.ai.SceneDecision;
 import pro.galaxyai.fold7.engine.AmbientPersonalityControllerV29;
 import pro.galaxyai.fold7.engine.DeformableLivePortraitV45;
-import pro.galaxyai.fold7.engine.NaturalFaceDynamicsV67;
+import pro.galaxyai.fold7.engine.ExpressiveFaceDynamicsV69;
 import pro.galaxyai.fold7.engine.SpeechFaceSyncV41;
 
 /**
- * v67 Natural Face Dynamics floating torso.
+ * v69 Expressive Face Coupling floating torso.
  *
- * Keeps the borderless v66 torso, but routes fixation gaze, irregular microsaccades,
- * head/eye coordination and Russian TTS articulation through one local dynamics controller.
- * The face remains maskless: only the original portrait mesh is deformed.
+ * Keeps the borderless v68 floating-presence UX and routes fixation gaze, irregular
+ * microsaccades, attention-shift blink cues and Russian TTS articulation through one
+ * privacy-safe expressive controller. The face remains maskless: only source portrait
+ * pixels are deformed by the inherited mesh renderer.
  */
 public final class FloatingAssistantViewV67 extends View {
     private final DeformableLivePortraitV45 portrait;
     private final SpeechFaceSyncV41 speechFace = new SpeechFaceSyncV41();
-    private final NaturalFaceDynamicsV67 naturalFace = new NaturalFaceDynamicsV67();
+    private final ExpressiveFaceDynamicsV69 expressiveFace = new ExpressiveFaceDynamicsV69();
     private final AmbientPersonalityControllerV29 personality;
     private final AIDIClient aidi;
     private final AIStateCollector stateCollector;
@@ -102,25 +103,28 @@ public final class FloatingAssistantViewV67 extends View {
                 dt
         );
 
-        naturalFace.update(
+        expressiveFace.update(
                 decision,
                 speechFace.getMouthOpen(),
                 speechFace.getSpeechEnergy(),
                 dt
         );
 
-        // Update inherited blink/expression state first, then apply the authoritative v67 gaze
-        // and damped speech envelope for the rendered frame. Gaze deltas feed the next blink
-        // decision, naturally coupling large attention shifts and eyelid closure.
+        // The inherited portrait controller still owns eyelid geometry and micro-expression
+        // mesh weights. v69 supplies one authoritative gaze vector; its brief attention pulse
+        // naturally feeds the portrait's existing saccade-aware blink trigger.
         portrait.update(decision, dt);
-        portrait.setGaze(naturalFace.getGazeX(), naturalFace.getGazeY());
-        portrait.setMouthOpen(naturalFace.getMouthOpen());
-        portrait.setSpeechEnergy(naturalFace.getSpeechEnergy());
+        portrait.setGaze(expressiveFace.getGazeX(), expressiveFace.getGazeY());
+        portrait.setMouthOpen(expressiveFace.getMouthOpen());
+        portrait.setSpeechEnergy(expressiveFace.getSpeechEnergy());
 
-        float speech = naturalFace.getSpeechEnergy();
-        float gazeActivity = Math.abs(naturalFace.getGazeX()) + Math.abs(naturalFace.getGazeY());
-        motionLevel += ((0.065f + speech * 0.30f + gazeActivity * 0.018f) - motionLevel)
-                * Math.min(1f, dt * 4.2f);
+        float speech = expressiveFace.getSpeechEnergy();
+        float gazeActivity = Math.abs(expressiveFace.getGazeX())
+                + Math.abs(expressiveFace.getGazeY());
+        float blinkActivity = expressiveFace.getBlinkCueStrength();
+        motionLevel += ((0.060f + speech * 0.30f + gazeActivity * 0.017f
+                + blinkActivity * 0.018f) - motionLevel)
+                * Math.min(1f, dt * 4.4f);
     }
 
     @Override
@@ -135,12 +139,9 @@ public final class FloatingAssistantViewV67 extends View {
         canvas.save();
         canvas.clipPath(torsoMask);
 
-        // Eyes lead first. The portrait follows with a deliberately much smaller delayed
-        // movement, preserving the impression of head/eye coordination without moving the
-        // overlay window itself.
-        float headX = naturalFace.getHeadFollowX();
-        float headY = naturalFace.getHeadFollowY();
-        float headRoll = naturalFace.getHeadRoll();
+        float headX = expressiveFace.getHeadFollowX();
+        float headY = expressiveFace.getHeadFollowY();
+        float headRoll = expressiveFace.getHeadRoll();
         canvas.translate(headX * w * 0.010f, headY * h * 0.007f);
         canvas.rotate(headRoll * 22f, w * 0.52f, h * 0.34f);
 
@@ -190,11 +191,11 @@ public final class FloatingAssistantViewV67 extends View {
     public void reactToTap(float normalizedX, float normalizedY) {
         float x = clamp(normalizedX, -1f, 1f);
         float y = clamp(normalizedY, -1f, 1f);
-        naturalFace.onTouch(x, y, true);
+        expressiveFace.onTouch(x, y, true);
         portrait.onTouch(x, y, true);
         handler.postDelayed(() -> {
             if (!destroyed) {
-                naturalFace.onTouch(x, y, false);
+                expressiveFace.onTouch(x, y, false);
                 portrait.onTouch(x, y, false);
             }
         }, 190L);
