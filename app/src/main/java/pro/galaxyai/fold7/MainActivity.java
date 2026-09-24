@@ -34,21 +34,17 @@ public class MainActivity extends Activity {
 
         LinearLayout screen = new LinearLayout(this);
         screen.setOrientation(LinearLayout.VERTICAL);
-
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setVerticalScrollBarEnabled(true);
-
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
         root.setPadding(dp(18), dp(12), dp(18), dp(20));
-        scroll.addView(root, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
+        scroll.addView(root, new ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText("Galaxy AI Fold7 v52 — Живой диалог и смена поз");
+        title.setText("Galaxy AI Fold7 v53 — Естественная инерция мимики");
         title.setTextSize(21f);
         root.addView(title, fullWidth());
 
@@ -65,21 +61,14 @@ public class MainActivity extends Activity {
         refreshContextStatus();
 
         Button contextOn = button("Показывать AI-статусы");
-        contextOn.setOnClickListener(v -> {
-            AIStatusOverlayRendererV34.setVisible(MainActivity.this, true);
-            refreshContextStatus();
-        });
+        contextOn.setOnClickListener(v -> { AIStatusOverlayRendererV34.setVisible(MainActivity.this, true); refreshContextStatus(); });
         root.addView(contextOn, buttonParams());
-
         Button contextOff = button("Скрыть AI-статусы");
-        contextOff.setOnClickListener(v -> {
-            AIStatusOverlayRendererV34.setVisible(MainActivity.this, false);
-            refreshContextStatus();
-        });
+        contextOff.setOnClickListener(v -> { AIStatusOverlayRendererV34.setVisible(MainActivity.this, false); refreshContextStatus(); });
         root.addView(contextOff, buttonParams());
 
         TextView portraitInfo = new TextView(this);
-        portraitInfo.setText("v52 добавляет естественную смену поз во время русской речи: мягкий вход в реплику, устойчивую позу во время фразы и плавное возвращение после окончания TTS вместо резкого включения и выключения движения. Сохранены живая осанка и дыхание v51, контекстные позы v50, координация глаз и головы v49, естественные фиксации v48, микроэмоции, mesh-деформация, моргание, TTS-анимация губ и Fold continuity.");
+        portraitInfo.setText("v53 добавляет естественную инерцию мимики: улыбка, брови и щёки переходят между AI-состояниями через критически демпфированную локальную динамику, без резких разворотов выражения лица. Сохранены разговорная смена поз v52, живая осанка и дыхание v51, контекстные позы v50, координация глаз и головы, фиксации, mesh-деформация, моргание, русская TTS-анимация губ и Fold continuity.");
         portraitInfo.setTextSize(14f);
         portraitInfo.setPadding(0, dp(8), 0, dp(10));
         root.addView(portraitInfo, fullWidth());
@@ -90,20 +79,12 @@ public class MainActivity extends Activity {
         root.addView(profileStatus, fullWidth());
         refreshProfileStatus();
 
-        addProfilePreset(root, "Профиль: Мягкий", AIPersonalizationProfileV30.PRESET_SOFT,
-                AvatarStyleV28.HUMAN, AmbientPersonalityControllerV29.LEVEL_QUIET);
-        addProfilePreset(root, "Профиль: Сбалансированный", AIPersonalizationProfileV30.PRESET_BALANCED,
-                AvatarStyleV28.SCI_FI, AmbientPersonalityControllerV29.LEVEL_NORMAL);
-        addProfilePreset(root, "Профиль: Яркий", AIPersonalizationProfileV30.PRESET_VIVID,
-                AvatarStyleV28.CUSTOM, AmbientPersonalityControllerV29.LEVEL_EXPRESSIVE);
+        addProfilePreset(root, "Профиль: Мягкий", AIPersonalizationProfileV30.PRESET_SOFT, AvatarStyleV28.HUMAN, AmbientPersonalityControllerV29.LEVEL_QUIET);
+        addProfilePreset(root, "Профиль: Сбалансированный", AIPersonalizationProfileV30.PRESET_BALANCED, AvatarStyleV28.SCI_FI, AmbientPersonalityControllerV29.LEVEL_NORMAL);
+        addProfilePreset(root, "Профиль: Яркий", AIPersonalizationProfileV30.PRESET_VIVID, AvatarStyleV28.CUSTOM, AmbientPersonalityControllerV29.LEVEL_EXPRESSIVE);
 
         Button reset = button("Сбросить профиль аватара");
-        reset.setOnClickListener(v -> {
-            personalization.resetProfile();
-            AvatarStyleControllerV28.persist(MainActivity.this, AvatarStyleV28.SCI_FI);
-            refreshProfileStatus();
-            refreshStyle();
-        });
+        reset.setOnClickListener(v -> { personalization.resetProfile(); AvatarStyleControllerV28.persist(MainActivity.this, AvatarStyleV28.SCI_FI); refreshProfileStatus(); refreshStyle(); });
         root.addView(reset, buttonParams());
 
         selectedStyle = new TextView(this);
@@ -111,7 +92,6 @@ public class MainActivity extends Activity {
         selectedStyle.setPadding(0, dp(14), 0, dp(6));
         root.addView(selectedStyle, fullWidth());
         refreshStyle();
-
         addStyleButton(root, "Стиль лица: Человечный", AvatarStyleV28.HUMAN);
         addStyleButton(root, "Стиль лица: Научная фантастика", AvatarStyleV28.SCI_FI);
         addStyleButton(root, "Стиль лица: Аврора", AvatarStyleV28.CUSTOM);
@@ -121,146 +101,60 @@ public class MainActivity extends Activity {
         voiceStatus.setPadding(0, dp(14), 0, dp(6));
         root.addView(voiceStatus, fullWidth());
         refreshVoiceStatus();
-
         Button voiceOn = button("Включить голосовые реакции");
-        voiceOn.setOnClickListener(v -> {
-            AmbientPersonalityControllerV29.setVoiceEnabled(MainActivity.this, true);
-            refreshVoiceStatus();
-        });
+        voiceOn.setOnClickListener(v -> { AmbientPersonalityControllerV29.setVoiceEnabled(MainActivity.this, true); refreshVoiceStatus(); });
         root.addView(voiceOn, buttonParams());
-
         Button voiceOff = button("Выключить голосовые реакции");
-        voiceOff.setOnClickListener(v -> {
-            AmbientPersonalityControllerV29.setVoiceEnabled(MainActivity.this, false);
-            refreshVoiceStatus();
-        });
+        voiceOff.setOnClickListener(v -> { AmbientPersonalityControllerV29.setVoiceEnabled(MainActivity.this, false); refreshVoiceStatus(); });
         root.addView(voiceOff, buttonParams());
 
         TextView privacy = new TextView(this);
-        privacy.setText("Приватность: смена поз во время речи, дыхание, движение плеч, координация глаз и головы, фиксации взгляда и микроэмоции формируются только локально из разрешённого AI-состояния и состояния TTS. Касание передаёт только нормализованные координаты внутри live wallpaper. Камера, распознавание лица, микрофон, запись звука, точная геопозиция и исходные медиа не используются и не передаются.");
+        privacy.setText("Приватность: мимика, смена поз во время речи, дыхание, движение плеч, координация глаз и головы и фиксации взгляда формируются только локально из разрешённого AI-состояния и состояния TTS. Касание передаёт только нормализованные координаты внутри live wallpaper. Камера, распознавание лица, микрофон, запись звука, точная геопозиция и исходные медиа не используются и не передаются.");
         privacy.setTextSize(13f);
         privacy.setPadding(0, dp(14), 0, dp(18));
         root.addView(privacy, fullWidth());
 
-        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        screen.addView(scroll, scrollParams);
-
+        screen.addView(scroll, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
         Button apply = button("ПРИМЕНИТЬ ЖИВЫЕ ОБОИ");
         apply.setOnClickListener(v -> openWallpaperPicker());
-        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         applyParams.setMargins(dp(12), dp(6), dp(12), dp(6));
         screen.addView(apply, applyParams);
 
         final int baseBottom = dp(6);
         screen.setOnApplyWindowInsetsListener((View v, WindowInsets insets) -> {
-            v.setPadding(
-                    insets.getSystemWindowInsetLeft(),
-                    insets.getSystemWindowInsetTop(),
-                    insets.getSystemWindowInsetRight(),
-                    Math.max(baseBottom, insets.getSystemWindowInsetBottom()));
+            v.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(), insets.getSystemWindowInsetRight(), Math.max(baseBottom, insets.getSystemWindowInsetBottom()));
             return insets;
         });
         screen.requestApplyInsets();
-
         setContentView(screen);
     }
 
-    private void addProfilePreset(LinearLayout root, String label, String preset,
-                                  AvatarStyleV28 style, int reactionLevel) {
+    private void addProfilePreset(LinearLayout root, String label, String preset, AvatarStyleV28 style, int reactionLevel) {
         Button button = button(label);
-        button.setOnClickListener(v -> {
-            personalization.applyPreset(preset);
-            AvatarStyleControllerV28.persist(MainActivity.this, style);
-            AmbientPersonalityControllerV29.setReactionLevel(MainActivity.this, reactionLevel);
-            refreshProfileStatus();
-            refreshStyle();
-            refreshVoiceStatus();
-        });
+        button.setOnClickListener(v -> { personalization.applyPreset(preset); AvatarStyleControllerV28.persist(MainActivity.this, style); AmbientPersonalityControllerV29.setReactionLevel(MainActivity.this, reactionLevel); refreshProfileStatus(); refreshStyle(); refreshVoiceStatus(); });
         root.addView(button, buttonParams());
     }
 
     private void addStyleButton(LinearLayout root, String label, AvatarStyleV28 style) {
         Button button = button(label);
-        button.setOnClickListener(v -> {
-            AvatarStyleControllerV28.persist(MainActivity.this, style);
-            refreshStyle();
-        });
+        button.setOnClickListener(v -> { AvatarStyleControllerV28.persist(MainActivity.this, style); refreshStyle(); });
         root.addView(button, buttonParams());
     }
 
-    private Button button(String text) {
-        Button button = new Button(this);
-        button.setText(text);
-        button.setAllCaps(false);
-        button.setMinHeight(dp(48));
-        return button;
-    }
-
-    private LinearLayout.LayoutParams buttonParams() {
-        LinearLayout.LayoutParams params = fullWidth();
-        params.setMargins(0, dp(3), 0, dp(3));
-        return params;
-    }
+    private Button button(String text) { Button button = new Button(this); button.setText(text); button.setAllCaps(false); button.setMinHeight(dp(48)); return button; }
+    private LinearLayout.LayoutParams buttonParams() { LinearLayout.LayoutParams params = fullWidth(); params.setMargins(0, dp(3), 0, dp(3)); return params; }
 
     private void refreshProfileStatus() {
         AIPersonalizationProfileV30.Snapshot p = personalization.snapshot();
-        profileStatus.setText("Профиль: " + russianPreset(p.preset)
-                + " · выразительность " + percent(p.expressionIntensity) + "%"
-                + " · свечение глаз " + percent(p.eyeGlow) + "%"
-                + " · голос " + String.format(java.util.Locale.US, "%.2f× / %.2f×", p.voicePitch, p.voiceRate));
+        profileStatus.setText("Профиль: " + russianPreset(p.preset) + " · выразительность " + percent(p.expressionIntensity) + "%" + " · свечение глаз " + percent(p.eyeGlow) + "%" + " · голос " + String.format(java.util.Locale.US, "%.2f× / %.2f×", p.voicePitch, p.voiceRate));
     }
-
-    private static String russianPreset(String preset) {
-        if (AIPersonalizationProfileV30.PRESET_SOFT.equals(preset)) return "Мягкий";
-        if (AIPersonalizationProfileV30.PRESET_VIVID.equals(preset)) return "Яркий";
-        return "Сбалансированный";
-    }
-
-    private void refreshStyle() {
-        AvatarStyleControllerV28 controller = new AvatarStyleControllerV28(this);
-        AvatarStyleV28 style = controller.getStyle();
-        String value;
-        if (style == AvatarStyleV28.HUMAN) value = "Человечный";
-        else if (style == AvatarStyleV28.CUSTOM) value = "Аврора";
-        else value = "Научная фантастика";
-        selectedStyle.setText("Стиль аватара: " + value);
-    }
-
-    private void refreshContextStatus() {
-        boolean visible = AIStatusOverlayRendererV34.readVisible(this);
-        contextStatus.setText("AI-статусы: " + (visible ? "показываются" : "скрыты")
-                + " · язык: Русский (ru-RU)");
-    }
-
-    private void refreshVoiceStatus() {
-        boolean enabled = AmbientPersonalityControllerV29.readVoiceEnabled(this);
-        int level = AmbientPersonalityControllerV29.readReactionLevel(this);
-        voiceStatus.setText("Голос AI: " + (enabled ? "включён" : "выключен")
-                + " · язык: Русский (" + RussianAIPersonalityV33.LOCALE_TAG + ")"
-                + " · реакции: " + RussianAIPersonalityV33.reactionLevelName(level));
-    }
-
-    private static int percent(float value) {
-        return Math.round(value * 100f);
-    }
-
-    private void openWallpaperPicker() {
-        Intent intent = new Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER);
-        intent.putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
-                new ComponentName(this, GalaxyAIWallpaperService.class));
-        startActivity(intent);
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
-    }
-
-    private static LinearLayout.LayoutParams fullWidth() {
-        return new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-    }
+    private static String russianPreset(String preset) { if (AIPersonalizationProfileV30.PRESET_SOFT.equals(preset)) return "Мягкий"; if (AIPersonalizationProfileV30.PRESET_VIVID.equals(preset)) return "Яркий"; return "Сбалансированный"; }
+    private void refreshStyle() { AvatarStyleV28 style = new AvatarStyleControllerV28(this).getStyle(); String value = style == AvatarStyleV28.HUMAN ? "Человечный" : (style == AvatarStyleV28.CUSTOM ? "Аврора" : "Научная фантастика"); selectedStyle.setText("Стиль аватара: " + value); }
+    private void refreshContextStatus() { boolean visible = AIStatusOverlayRendererV34.readVisible(this); contextStatus.setText("AI-статусы: " + (visible ? "показываются" : "скрыты") + " · язык: Русский (ru-RU)"); }
+    private void refreshVoiceStatus() { boolean enabled = AmbientPersonalityControllerV29.readVoiceEnabled(this); int level = AmbientPersonalityControllerV29.readReactionLevel(this); voiceStatus.setText("Голос AI: " + (enabled ? "включён" : "выключен") + " · язык: Русский (" + RussianAIPersonalityV33.LOCALE_TAG + ")" + " · реакции: " + RussianAIPersonalityV33.reactionLevelName(level)); }
+    private static int percent(float value) { return Math.round(value * 100f); }
+    private void openWallpaperPicker() { Intent intent = new Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER); intent.putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT, new ComponentName(this, GalaxyAIWallpaperService.class)); startActivity(intent); }
+    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+    private static LinearLayout.LayoutParams fullWidth() { return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); }
 }
