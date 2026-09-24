@@ -25,7 +25,7 @@ public final class FloatingAssistantService extends Service {
 
     private WindowManager windowManager;
     private WindowManager.LayoutParams params;
-    private FloatingAssistantViewV65 assistantView;
+    private FloatingAssistantViewV66 assistantView;
 
     private float downRawX;
     private float downRawY;
@@ -87,8 +87,8 @@ public final class FloatingAssistantService extends Service {
             return;
         }
 
-        int width = dp(148);
-        int height = dp(222);
+        int width = dp(132);
+        int height = dp(228);
         params = new WindowManager.LayoutParams(
                 width,
                 height,
@@ -103,7 +103,7 @@ public final class FloatingAssistantService extends Service {
         params.y = getSharedPreferences(PREFS, MODE_PRIVATE)
                 .getInt(KEY_Y, dp(120));
 
-        assistantView = new FloatingAssistantViewV65(this);
+        assistantView = new FloatingAssistantViewV66(this);
         assistantView.setOnTouchListener((v, event) -> handleTouch(event));
         windowManager.addView(assistantView, params);
         clampAndApply();
@@ -191,7 +191,7 @@ public final class FloatingAssistantService extends Service {
         return new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle("Galaxy AI активен")
-                .setContentText("AI-помощник отображается поверх приложений")
+                .setContentText("Живой AI-помощник отображается поверх приложений")
                 .setContentIntent(pending)
                 .setOngoing(true)
                 .build();
