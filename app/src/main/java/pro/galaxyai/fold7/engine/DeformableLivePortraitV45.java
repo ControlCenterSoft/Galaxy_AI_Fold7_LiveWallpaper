@@ -15,7 +15,8 @@ import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
  * Deformable Live Portrait renderer, extended by v46 attentive gaze, v47 micro-expressions,
- * v59 saccade-aware blink coupling, v60 natural blink dynamics and v62 jaw/chin articulation.
+ * v59 saccade-aware blink coupling, v60 natural blink dynamics, v62 jaw/chin articulation
+ * and v66 refined eyelid/lip/jaw/neck articulation for the floating torso assistant.
  *
  * The photoreal portrait remains fully local. A bounded bitmap mesh deforms only original
  * portrait pixels: head/face motion, shoulder breathing, texture blink, attentive gaze,
@@ -43,6 +44,7 @@ public final class DeformableLivePortraitV45 {
     private float curiosity = 0.38f;
     private float serenity = 0.72f;
     private float mouthOpen;
+    private float speechEnergy;
     private float gazeX;
     private float gazeY;
     private float externalGazeX;
@@ -88,6 +90,10 @@ public final class DeformableLivePortraitV45 {
 
     public void setMouthOpen(float value) {
         mouthOpen = clamp(value, 0f, 1f);
+    }
+
+    public void setSpeechEnergy(float value) {
+        speechEnergy = clamp(value, 0f, 1f);
     }
 
     /**
@@ -211,7 +217,15 @@ public final class DeformableLivePortraitV45 {
                 dy += gazeY * srcH * 0.0027f * eyeWeight;
                 float localBlink = Math.min(1f,
                         blinkAmountLeft * eyeLeft + blinkAmountRight * eyeRight);
-                dy += (EYE_Y - ny) * srcH * localBlink * 0.82f;
+                // v66 natural eyelid closure: the upper lid travels farther than the lower
+                // lid while both converge on the real eye line. Only source pixels move.
+                float upperLid = ny < EYE_Y ? 1f : 0f;
+                float lowerLid = 1f - upperLid;
+                float lidTravel = upperLid * 1.03f + lowerLid * 0.57f;
+                dy += (EYE_Y - ny) * srcH * localBlink * lidTravel;
+                // A tiny horizontal relaxation avoids the pinched straight-line blink look.
+                dx += (nx < 0.515f ? 1f : -1f)
+                        * localBlink * eyeWeight * srcW * 0.00055f;
 
                 float browLeft = gaussian(nx, 0.405f, 0.105f) * gaussian(ny, 0.294f, 0.035f);
                 float browRight = gaussian(nx, 0.625f, 0.105f) * gaussian(ny, 0.294f, 0.035f);
@@ -229,20 +243,36 @@ public final class DeformableLivePortraitV45 {
 
                 float mouthWeight = gaussian(nx, MOUTH_X, 0.094f)
                         * gaussian(ny, MOUTH_Y, 0.043f);
-                float mouthDirection = ny < MOUTH_Y ? -1f : 1f;
-                dy += mouthDirection * mouthOpen * srcH * 0.0085f * mouthWeight;
+                float upperLip = ny < MOUTH_Y ? 1f : 0f;
+                float lowerLip = 1f - upperLip;
+                // v66 speech articulation: upper lip moves only slightly while the lower lip
+                // and jaw carry most of the opening. Mouth corners narrow a little on open vowels.
+                dy += mouthOpen * srcH * mouthWeight
+                        * (-0.0039f * upperLip + 0.0108f * lowerLip);
+                dx += (MOUTH_X - nx) * srcW * mouthOpen * mouthWeight * 0.105f;
 
                 float cornerDistance = Math.abs(nx - MOUTH_X);
                 float cornerWeight = mouthWeight * clamp(cornerDistance / 0.065f, 0f, 1f);
-                dy -= smile * srcH * 0.0041f * cornerWeight;
-                dx += (nx < MOUTH_X ? -1f : 1f) * smile * srcW * 0.0019f * cornerWeight;
+                float speechSmileGuard = 1f - speechEnergy * 0.22f;
+                dy -= smile * speechSmileGuard * srcH * 0.0041f * cornerWeight;
+                dx += (nx < MOUTH_X ? -1f : 1f)
+                        * smile * speechSmileGuard * srcW * 0.0019f * cornerWeight;
 
-                // v62 Jaw & Chin Articulation: extend the already-smoothed local TTS mouth
-                // envelope into the lower face so speech does not look like isolated lip warping.
+                // Jaw, chin and lower cheeks follow the speech envelope so opening the mouth
+                // reads as a single facial action rather than isolated lip stretching.
                 float jawWeight = gaussian(nx, 0.545f, 0.19f) * gaussian(ny, 0.585f, 0.095f);
                 float chinWeight = gaussian(nx, 0.545f, 0.14f) * gaussian(ny, 0.625f, 0.070f);
-                dy += mouthOpen * srcH * (0.0022f * jawWeight + 0.0046f * chinWeight);
-                dx += (nx < 0.545f ? -1f : 1f) * mouthOpen * srcW * 0.0009f * jawWeight;
+                float lowerCheek = gaussian(nx, 0.545f, 0.31f) * gaussian(ny, 0.535f, 0.115f);
+                float articulation = clamp(mouthOpen * 0.78f + speechEnergy * 0.22f, 0f, 1f);
+                dy += articulation * srcH
+                        * (0.0028f * jawWeight + 0.0058f * chinWeight + 0.0011f * lowerCheek);
+                dx += (nx < 0.545f ? -1f : 1f)
+                        * articulation * srcW * 0.00115f * jawWeight;
+
+                // Very small neck/shoulder participation while speaking prevents a frozen bust.
+                float neck = gaussian(nx, 0.55f, 0.19f) * gaussian(ny, 0.675f, 0.10f);
+                dy += speechEnergy * srcH * 0.00075f * neck;
+                dy += speechEnergy * srcH * 0.00030f * torso;
 
                 verts[p++] = x + dx;
                 verts[p++] = y + dy;
