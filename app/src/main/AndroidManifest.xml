@@ -1,10 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
-
-    <uses-feature
-        android:name="android.software.live_wallpaper"
-        android:required="true" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <queries>
         <intent>
@@ -13,7 +13,7 @@
     </queries>
 
     <application
-        android:label="Galaxy AI Fold7 v64"
+        android:label="Galaxy AI v65"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true">
 
@@ -27,15 +27,12 @@
         </activity>
 
         <service
-            android:name=".GalaxyAIWallpaperService"
-            android:exported="true"
-            android:permission="android.permission.BIND_WALLPAPER">
-            <intent-filter>
-                <action android:name="android.service.wallpaper.WallpaperService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.service.wallpaper"
-                android:resource="@xml/wallpaper" />
+            android:name=".FloatingAssistantService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="persistent floating AI assistant overlay" />
         </service>
 
     </application>
