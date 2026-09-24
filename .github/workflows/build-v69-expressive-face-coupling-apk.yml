@@ -1,0 +1,144 @@
+name: Build Galaxy AI v69.0 Expressive Face Coupling APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v69-expressive-face-coupling
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v69 expressive face coupling contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+          service = Path('app/src/main/java/pro/galaxyai/fold7/FloatingAssistantService.java').read_text()
+          view = Path('app/src/main/java/pro/galaxyai/fold7/FloatingAssistantViewV67.java').read_text()
+          dynamics = Path('app/src/main/java/pro/galaxyai/fold7/engine/ExpressiveFaceDynamicsV69.java').read_text()
+          natural = Path('app/src/main/java/pro/galaxyai/fold7/engine/NaturalFaceDynamicsV67.java').read_text()
+          portrait = Path('app/src/main/java/pro/galaxyai/fold7/engine/DeformableLivePortraitV45.java').read_text()
+          speech = Path('app/src/main/java/pro/galaxyai/fold7/engine/SpeechFaceSyncV41.java').read_text()
+          state = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIState.java').read_text()
+          personality = Path('app/src/main/java/pro/galaxyai/fold7/ai/RussianAIPersonalityV33.java').read_text()
+          gradle = Path('app/build.gradle').read_text()
+
+          # Floating overlay concept and v68 UX stay intact.
+          assert 'android.permission.SYSTEM_ALERT_WINDOW' in manifest
+          assert 'FloatingAssistantService' in manifest
+          assert 'BIND_WALLPAPER' not in manifest
+          assert 'android.software.live_wallpaper' not in manifest
+          assert 'GalaxyAIWallpaperService' not in manifest
+          assert 'TYPE_APPLICATION_OVERLAY' in service
+          assert 'KEY_X_FRACTION' in service and 'KEY_Y_FRACTION' in service
+          assert 'KEY_COLLAPSED' in service and 'KEY_DOCK' in service
+          assert 'toggleCollapsed' in service
+          assert 'dockToNearestEdge' in service
+          assert 'safeBounds' in service
+          assert 'onConfigurationChanged' in service
+
+          # v69 expressive face controller is authoritative for gaze and TTS articulation.
+          assert 'ExpressiveFaceDynamicsV69' in view
+          assert 'expressiveFace.update' in view
+          assert 'portrait.setGaze(expressiveFace.getGazeX()' in view
+          assert 'portrait.setMouthOpen(expressiveFace.getMouthOpen())' in view
+          assert 'portrait.setSpeechEnergy(expressiveFace.getSpeechEnergy())' in view
+          assert 'getBlinkCueStrength' in view
+
+          # Blink improvement: small attention saccades feed the existing saccade-aware blink trigger.
+          assert 'NaturalFaceDynamicsV67' in dynamics
+          assert 'updateAttentionPulse' in dynamics
+          assert 'phraseBoundary' in dynamics
+          assert 'pulseClock' in dynamics
+          assert 'getBlinkCueStrength' in dynamics
+          assert 'gazeMotion > 0.44f' in portrait
+          assert 'saccadeBlinkCooldown' in portrait
+          assert 'eyelidPhase' in portrait
+
+          # Speech improvement remains mesh-only and privacy-safe.
+          assert 'updateSpeechArticulation' in dynamics
+          assert 'pauseAccent' in dynamics
+          assert 'mouthVelocity' in dynamics
+          assert 'speechVelocity' in dynamics
+          assert 'phrasePauseClock' in speech
+          assert 'drawOval' not in speech
+          assert 'drawPath' not in speech
+          assert 'Canvas' not in speech
+
+          # Inherited natural gaze/head dynamics remain present.
+          assert 'HeadEyeCoordinationV49' in natural
+          assert 'updateMicrosaccade' in natural
+
+          # Russian and privacy contracts.
+          assert '"locale"' in state
+          assert 'RussianAIPersonalityV33.LOCALE_TAG' in state
+          assert '"language"' in state
+          assert 'LOCALE_TAG = "ru-RU"' in personality
+          for forbidden in [
+              'android.permission.CAMERA',
+              'android.permission.RECORD_AUDIO',
+              'android.permission.ACCESS_FINE_LOCATION'
+          ]:
+              assert forbidden not in manifest, forbidden
+
+          assert "versionCode 690" in gradle
+          assert "versionName '69.0'" in gradle
+          assert 'Galaxy AI v69' in manifest
+          PY
+
+      - name: Verify inherited AIDI gateway stack compiles
+        run: python3 -m py_compile aidi_gateway/*.py gateway_simulator/*.py
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v69.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify v69 APK metadata permissions signature and checksum
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Floating_Assistant_v69.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Floating_Assistant_v69.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='690'"
+          echo "$BADGING" | grep -q "versionName='69.0'"
+
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Floating_Assistant_v69.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          echo "$PERMS" | grep -q 'android.permission.SYSTEM_ALERT_WINDOW'
+          echo "$PERMS" | grep -q 'android.permission.FOREGROUND_SERVICE'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Floating_Assistant_v69.0.apk
+          sha256sum Galaxy_AI_Floating_Assistant_v69.0.apk | tee Galaxy_AI_Floating_Assistant_v69.0.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Floating_Assistant_v69.0
+          path: |
+            Galaxy_AI_Floating_Assistant_v69.0.apk
+            Galaxy_AI_Floating_Assistant_v69.0.sha256
+          if-no-files-found: error
+          retention-days: 30
