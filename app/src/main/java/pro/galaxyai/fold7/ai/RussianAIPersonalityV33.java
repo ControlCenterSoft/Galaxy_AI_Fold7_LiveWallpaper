@@ -50,6 +50,29 @@ public final class RussianAIPersonalityV33 {
         return safeLevel == 2 ? "Я здесь. Всё спокойно." : "Я рядом.";
     }
 
+    /**
+     * v69 explicit touch interaction phrases. They remain intentionally short because
+     * interaction is user-initiated and should not turn the overlay into an intrusive speaker.
+     */
+    public static String interactionPhraseFor(String emotion, int sequence) {
+        String normalized = normalizeEmotion(emotion);
+        int variant = Math.abs(sequence) % 3;
+
+        if ("focused".equals(normalized)) {
+            return variant == 1 ? "Я здесь. Держу фокус." : "Я рядом. Продолжаем.";
+        }
+        if ("thinking".equals(normalized)) {
+            return variant == 2 ? "Я рядом. Думаю вместе с тобой." : "Я здесь. Размышляю.";
+        }
+        if ("happy".equals(normalized)) {
+            return variant == 0 ? "Я здесь." : "Рада быть рядом.";
+        }
+        if ("sleep".equals(normalized)) {
+            return variant == 1 ? "Я рядом, тихо." : "Я здесь. Тихий режим.";
+        }
+        return variant == 2 ? "Я здесь." : "Я рядом.";
+    }
+
     public static String reactionLevelName(int level) {
         if (level >= 2) return "выразительный";
         if (level == 1) return "обычный";
