@@ -13,7 +13,7 @@
     </queries>
 
     <application
-        android:label="Galaxy AI Fold7 v58"
+        android:label="Galaxy AI Fold7 v59"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true">
 
