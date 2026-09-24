@@ -3,15 +3,15 @@ package pro.galaxyai.fold7.engine;
 import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
- * v44 Kinetic Presence motion controller.
+ * v44 Kinetic Presence motion controller, extended by v57 Fold Motion Continuity.
  *
  * Keeps the privacy-safe local motion model from v40 but increases visible, smooth
  * whole-portrait movement so the assistant reads as alive rather than as a static
- * wallpaper. Motion remains bounded and emotion-aware: calm = slow breathing/sway,
- * focused = restrained, thinking = exploratory lean, happy = lighter lift, sleep =
- * nearly still. Touch and Fold reactions are processed only in memory.
+ * wallpaper. v57 routes Fold progress through a damped continuity controller so portrait
+ * translation, roll, skew and scale do not snap when Android switches surfaces.
  */
 public final class LivingAvatarMotionV40 {
+    private final FoldMotionContinuityV57 foldContinuity = new FoldMotionContinuityV57();
     private float time;
     private float energy = 0.45f;
     private float curiosity = 0.38f;
@@ -24,9 +24,6 @@ public final class LivingAvatarMotionV40 {
     private float touchY;
     private float touchWeight;
     private float touchPulse;
-    private float foldProgress;
-    private float previousFoldProgress;
-    private float foldImpulse;
     private boolean mainDisplay;
 
     private float offsetX;
@@ -53,11 +50,9 @@ public final class LivingAvatarMotionV40 {
             emotion = normalizeEmotion(decision.avatarState);
         }
 
-        previousFoldProgress = foldProgress;
-        foldProgress = clamp(currentFoldProgress, 0f, 1f);
-        float foldVelocity = (foldProgress - previousFoldProgress) / Math.max(0.016f, dt);
-        foldImpulse += clamp(foldVelocity * 0.015f, -0.055f, 0.055f);
-        foldImpulse *= (float) Math.pow(0.20f, dt);
+        foldContinuity.update(currentFoldProgress, dt);
+        float foldBlend = foldContinuity.getProgress();
+        float foldImpulse = foldContinuity.getImpulse();
 
         touchWeight *= (float) Math.pow(0.10f, dt);
         touchPulse *= (float) Math.pow(0.05f, dt);
@@ -76,12 +71,17 @@ public final class LivingAvatarMotionV40 {
                 * (0.48f + (1f - serenity) * 0.52f) * activity;
 
         kineticPhase += dt * (0.18f + energy * 0.12f);
-        float approach = (float) Math.sin(kineticPhase) * (0.35f + presence * 0.65f) * activity;
+        float approach = (float) Math.sin(kineticPhase)
+                * (0.35f + presence * 0.65f) * activity;
 
-        float desiredX = idleX * (mainDisplay ? 0.016f : 0.011f);
+        // v57 blends cover/main motion amplitude continuously instead of switching it.
+        float horizontalAmplitude = 0.011f + foldBlend * 0.005f;
+        float desiredX = idleX * horizontalAmplitude;
         float desiredY = idleY * 0.0080f - approach * 0.0018f;
         desiredX += touchX * touchWeight * 0.028f;
         desiredY += touchY * touchWeight * 0.015f;
+        desiredX += foldImpulse * 0.16f;
+        desiredY -= Math.abs(foldImpulse) * 0.055f;
 
         if ("thinking".equals(emotion)) {
             desiredX += 0.0065f * (float) Math.sin(time * 0.43f + 0.4f);
@@ -102,7 +102,7 @@ public final class LivingAvatarMotionV40 {
 
         float desiredRoll = idleX * 1.05f * activity
                 + touchX * touchWeight * 1.75f
-                + foldImpulse * 20f;
+                + foldImpulse * 18f;
         if ("thinking".equals(emotion)) desiredRoll += 0.85f;
         if ("happy".equals(emotion)) desiredRoll += (float) Math.sin(time * 0.72f) * 0.35f;
         if ("focused".equals(emotion)) desiredRoll *= 0.42f;
@@ -110,8 +110,10 @@ public final class LivingAvatarMotionV40 {
         rollDegrees += (desiredRoll - rollDegrees) * Math.min(1f, dt * 2.1f);
         rollDegrees = clamp(rollDegrees, -3.2f, 3.2f);
 
-        float desiredYaw = (idleX * 0.010f + touchX * touchWeight * 0.016f) * activity;
-        float desiredPitch = (idleY * 0.0048f + touchY * touchWeight * 0.008f) * activity;
+        float desiredYaw = (idleX * 0.010f + touchX * touchWeight * 0.016f
+                + foldImpulse * 0.045f) * activity;
+        float desiredPitch = (idleY * 0.0048f + touchY * touchWeight * 0.008f
+                - Math.abs(foldImpulse) * 0.018f) * activity;
         yawSkew += (desiredYaw - yawSkew) * Math.min(1f, dt * 2.35f);
         pitchSkew += (desiredPitch - pitchSkew) * Math.min(1f, dt * 2.35f);
         yawSkew = clamp(yawSkew, -0.020f, 0.020f);
@@ -122,7 +124,7 @@ public final class LivingAvatarMotionV40 {
                 + breath * (0.0048f + energy * 0.0033f) * activity
                 + approach * 0.0035f
                 + touchPulse * 0.013f
-                + foldImpulse * 0.032f;
+                + foldImpulse * 0.026f;
         if ("happy".equals(emotion)) {
             desiredScale += (float) Math.sin(time * 0.76f) * 0.0024f;
         }
@@ -142,8 +144,9 @@ public final class LivingAvatarMotionV40 {
     }
 
     public void applyPortraitTransform(android.graphics.Canvas canvas, int width, int height) {
+        float foldBlend = foldContinuity.getProgress();
         float px = width * 0.5f;
-        float py = height * (mainDisplay ? 0.46f : 0.45f);
+        float py = height * (0.45f + foldBlend * 0.01f);
         canvas.translate(width * offsetX, height * offsetY);
         canvas.translate(px, py);
         canvas.rotate(rollDegrees);
@@ -152,24 +155,18 @@ public final class LivingAvatarMotionV40 {
         canvas.translate(-px, -py);
     }
 
-    public float getPixelOffsetX(int width) {
-        return width * offsetX;
-    }
-
-    public float getPixelOffsetY(int height) {
-        return height * offsetY;
-    }
-
-    public float getScale() {
-        return scale;
-    }
+    public float getPixelOffsetX(int width) { return width * offsetX; }
+    public float getPixelOffsetY(int height) { return height * offsetY; }
+    public float getScale() { return scale; }
+    public float getFoldBlend() { return foldContinuity.getProgress(); }
 
     public float getMotionIntensity() {
         return clamp(Math.abs(offsetX) * 30f
                 + Math.abs(offsetY) * 38f
                 + Math.abs(rollDegrees) * 0.13f
                 + Math.abs(scale - 1f) * 16f
-                + touchWeight * 0.22f, 0f, 1f);
+                + touchWeight * 0.22f
+                + Math.abs(foldContinuity.getImpulse()) * 3.0f, 0f, 1f);
     }
 
     private float activityForEmotion() {
