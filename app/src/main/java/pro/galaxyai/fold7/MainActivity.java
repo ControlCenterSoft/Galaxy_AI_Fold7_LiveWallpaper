@@ -44,12 +44,12 @@ public class MainActivity extends Activity {
         scroll.addView(root, new ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText("Galaxy AI Fold7 v53 — Естественная инерция мимики");
+        title.setText("Galaxy AI Fold7 v" + BuildConfig.VERSION_NAME + " — Живой AI-ассистент");
         title.setTextSize(21f);
         root.addView(title, fullWidth());
 
         TextView languageInfo = new TextView(this);
-        languageInfo.setText("Язык AI: Русский (ru-RU). Контекстные статусы, голосовые реакции и интерфейс работают на русском языке.");
+        languageInfo.setText("Язык AI: Русский (ru-RU). Контекстные статусы, голосовые реакции и offline/local fallback работают на русском языке.");
         languageInfo.setTextSize(14f);
         languageInfo.setPadding(0, dp(8), 0, dp(8));
         root.addView(languageInfo, fullWidth());
@@ -68,7 +68,7 @@ public class MainActivity extends Activity {
         root.addView(contextOff, buttonParams());
 
         TextView portraitInfo = new TextView(this);
-        portraitInfo.setText("v53 добавляет естественную инерцию мимики: улыбка, брови и щёки переходят между AI-состояниями через критически демпфированную локальную динамику, без резких разворотов выражения лица. Сохранены разговорная смена поз v52, живая осанка и дыхание v51, контекстные позы v50, координация глаз и головы, фиксации, mesh-деформация, моргание, русская TTS-анимация губ и Fold continuity.");
+        portraitInfo.setText("Актуальный движок живого портрета сохраняет фотореалистичное лицо без синтетической маски, mesh-мимику, естественное моргание, фиксации и микросаккады, координацию глаз и головы, дыхание и осанку, русскую TTS-анимацию губ, контекстные позы и Fold continuity. Начиная с v54 фиксации взгляда формируются через единый детерминированный Gaze Intent, поэтому движение глаз и следование головы используют один поведенческий контракт.");
         portraitInfo.setTextSize(14f);
         portraitInfo.setPadding(0, dp(8), 0, dp(10));
         root.addView(portraitInfo, fullWidth());
@@ -109,7 +109,7 @@ public class MainActivity extends Activity {
         root.addView(voiceOff, buttonParams());
 
         TextView privacy = new TextView(this);
-        privacy.setText("Приватность: мимика, смена поз во время речи, дыхание, движение плеч, координация глаз и головы и фиксации взгляда формируются только локально из разрешённого AI-состояния и состояния TTS. Касание передаёт только нормализованные координаты внутри live wallpaper. Камера, распознавание лица, микрофон, запись звука, точная геопозиция и исходные медиа не используются и не передаются.");
+        privacy.setText("Приватность: движение лица и тела, взгляд, мимика, речь и реакции формируются локально из разрешённого AI-состояния и состояния TTS. Касание передаёт только нормализованные координаты внутри live wallpaper. Камера, распознавание лица, микрофон, запись звука, точная геопозиция и исходные медиа не используются и не передаются.");
         privacy.setTextSize(13f);
         privacy.setPadding(0, dp(14), 0, dp(18));
         root.addView(privacy, fullWidth());
