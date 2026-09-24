@@ -16,6 +16,7 @@ import pro.galaxyai.fold7.ai.SceneDecision;
  * Since v33 the communication language on the phone is Russian (ru-RU) by default.
  * Since v41 a local synthetic speech-activity envelope is exposed for mouth animation; it is
  * derived only from TTS lifecycle callbacks and local time, never from microphone/audio samples.
+ * v69 adds explicit user-initiated touch reactions while preserving the same privacy contract.
  */
 public final class AmbientPersonalityControllerV29 implements TextToSpeech.OnInitListener {
     public static final String PREFS = "ambient_personality_v29";
@@ -31,6 +32,8 @@ public final class AmbientPersonalityControllerV29 implements TextToSpeech.OnIni
     private boolean ttsReady;
     private String lastEmotion = "";
     private long lastSpokenAt;
+    private long lastInteractionAt;
+    private int interactionSequence;
     private float desiredPitch = 1.02f;
     private float desiredRate = 0.92f;
     private volatile boolean speaking;
@@ -102,6 +105,30 @@ public final class AmbientPersonalityControllerV29 implements TextToSpeech.OnIni
         tts.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "galaxy-ai-v41-" + now);
         lastEmotion = emotion;
         lastSpokenAt = now;
+    }
+
+    /**
+     * v69: explicit long-press reaction. This never starts recognition and never accesses
+     * microphone/audio input. It only speaks a short Russian phrase through Android TTS when
+     * voice reactions are enabled by the user.
+     */
+    public void reactToInteraction(SceneDecision decision) {
+        if (!isVoiceEnabled() || !ttsReady) return;
+
+        long now = System.currentTimeMillis();
+        if (now - lastInteractionAt < 2_500L) return;
+
+        String emotion = decision == null ? "calm" : decision.avatarState;
+        String phrase = RussianAIPersonalityV33.interactionPhraseFor(
+                emotion,
+                interactionSequence++
+        );
+        if (phrase.isEmpty()) return;
+
+        tts.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "galaxy-ai-v69-touch-" + now);
+        lastInteractionAt = now;
+        lastSpokenAt = now;
+        lastEmotion = RussianAIPersonalityV33.normalizeEmotion(emotion);
     }
 
     /** True only while Android TTS reports an active utterance. */
