@@ -26,7 +26,7 @@ jobs:
           gradle = Path('app/build.gradle').read_text()
           manifest = Path('app/src/main/AndroidManifest.xml').read_text()
 
-          for token in ['Unified Gaze Intent', 'Target next', 'durationSeconds', 'No camera']:
+          for token in ['Unified Gaze Intent', 'Target next', 'durationSeconds', 'camera input']:
               assert token in intent, token
           for token in ['new UnifiedGazeIntentV54()', 'gazeIntent.next(', 'getGazeSpeed()']:
               assert token in gaze, token
