@@ -13,7 +13,7 @@
     </queries>
 
     <application
-        android:label="Galaxy AI v69"
+        android:label="Galaxy AI v70"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true">
 
