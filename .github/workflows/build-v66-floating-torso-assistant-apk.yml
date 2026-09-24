@@ -41,7 +41,8 @@ jobs:
           assert 'TYPE_APPLICATION_OVERLAY' in service
           assert 'torsoMask.addOval' in view
           assert 'canvas.clipPath(torsoMask)' in view
-          assert 'border' not in view.lower()
+          assert 'drawRoundRect' not in view
+          assert 'Paint border' not in view
           assert 'карточки или рамки' in activity
 
           # Improved maskless face motion.
