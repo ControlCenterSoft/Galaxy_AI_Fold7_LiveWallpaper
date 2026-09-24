@@ -18,7 +18,7 @@ import pro.galaxyai.fold7.engine.RussianVisemeDynamicsV71;
 import pro.galaxyai.fold7.engine.SpeechFaceSyncV41;
 
 /**
- * v71 Russian Viseme Coherence floating torso.
+ * v73 Silhouette Union Fix floating torso.
  *
  * Keeps v70 eyelid geometry and v69 expressive gaze/TTS coupling, while adding broad
  * Russian vowel-like mouth shapes generated exclusively from the local TTS lifecycle.
@@ -34,6 +34,7 @@ public final class FloatingAssistantViewV67 extends View {
     private final AIStateCollector stateCollector;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Path torsoMask = new Path();
+    private final Path torsoBodyMask = new Path();
 
     private boolean running;
     private boolean destroyed;
@@ -155,6 +156,9 @@ public final class FloatingAssistantViewV67 extends View {
     }
 
     private void buildTorsoMask(float w, float h) {
+        // v73: construct head and torso as separate closed paths and union them geometrically.
+        // Adding overlapping subpaths directly can cancel winding in the overlap on some
+        // renderers, exposing the launcher background through the lower face/neck.
         torsoMask.reset();
         torsoMask.addOval(
                 w * 0.055f,
@@ -163,34 +167,38 @@ public final class FloatingAssistantViewV67 extends View {
                 h * 0.690f,
                 Path.Direction.CW
         );
-        torsoMask.moveTo(w * 0.385f, h * 0.470f);
-        torsoMask.cubicTo(
+
+        torsoBodyMask.reset();
+        torsoBodyMask.moveTo(w * 0.385f, h * 0.470f);
+        torsoBodyMask.cubicTo(
                 w * 0.305f, h * 0.515f,
                 w * 0.180f, h * 0.545f,
                 w * 0.095f, h * 0.645f
         );
-        torsoMask.cubicTo(
+        torsoBodyMask.cubicTo(
                 w * 0.025f, h * 0.730f,
                 w * 0.005f, h * 0.860f,
                 w * 0.015f, h
         );
-        torsoMask.lineTo(w * 0.985f, h);
-        torsoMask.cubicTo(
+        torsoBodyMask.lineTo(w * 0.985f, h);
+        torsoBodyMask.cubicTo(
                 w * 0.995f, h * 0.855f,
                 w * 0.965f, h * 0.720f,
                 w * 0.875f, h * 0.625f
         );
-        torsoMask.cubicTo(
+        torsoBodyMask.cubicTo(
                 w * 0.785f, h * 0.535f,
                 w * 0.665f, h * 0.505f,
                 w * 0.595f, h * 0.465f
         );
-        torsoMask.cubicTo(
+        torsoBodyMask.cubicTo(
                 w * 0.545f, h * 0.500f,
                 w * 0.435f, h * 0.505f,
                 w * 0.385f, h * 0.470f
         );
-        torsoMask.close();
+        torsoBodyMask.close();
+
+        torsoMask.op(torsoBodyMask, Path.Op.UNION);
     }
 
     public void reactToTap(float normalizedX, float normalizedY) {
