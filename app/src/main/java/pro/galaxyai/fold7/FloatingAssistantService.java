@@ -16,6 +16,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -24,10 +25,12 @@ import android.view.WindowManager;
 import android.view.WindowMetrics;
 
 /**
- * v68 Floating Presence UX.
+ * v69 Touch Presence overlay service.
  *
- * Adds persistent scaling, collapse/expand, edge docking, safe-inset clamping and
- * normalized position continuity when Fold dimensions change. No sensor or media access.
+ * Keeps v68 persistent scaling, collapse/expand, edge docking, safe-inset clamping and
+ * normalized Fold continuity. A deliberate long press now triggers a local visual attention
+ * response and, when voice is enabled, a short Russian TTS acknowledgement. No recognition,
+ * microphone, camera, precise location or raw-media access is used.
  */
 public final class FloatingAssistantService extends Service {
     public static final String ACTION_SET_SCALE = "pro.galaxyai.fold7.action.SET_SCALE";
@@ -47,19 +50,21 @@ public final class FloatingAssistantService extends Service {
     private static final int DOCK_NONE = 0;
     private static final int DOCK_LEFT = -1;
     private static final int DOCK_RIGHT = 1;
+    private static final long LONG_PRESS_MS = 560L;
 
     private static volatile boolean running;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private WindowManager windowManager;
     private WindowManager.LayoutParams params;
-    private FloatingAssistantViewV67 assistantView;
+    private FloatingAssistantViewV69 assistantView;
 
     private float downRawX;
     private float downRawY;
     private int startX;
     private int startY;
     private boolean dragging;
+    private long downUptime;
     private long lastTapUptime;
     private float scale = 1f;
     private boolean collapsed;
@@ -96,8 +101,6 @@ public final class FloatingAssistantService extends Service {
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-        // Fold cover/main transitions can change usable bounds while the service survives.
-        // Re-map the normalized saved position after Android publishes the new metrics.
         handler.postDelayed(this::restoreForCurrentDisplay, 140L);
     }
 
@@ -146,7 +149,7 @@ public final class FloatingAssistantService extends Service {
         );
         params.gravity = Gravity.TOP | Gravity.START;
 
-        assistantView = new FloatingAssistantViewV67(this);
+        assistantView = new FloatingAssistantViewV69(this);
         assistantView.setOnTouchListener((v, event) -> handleTouch(event));
         restorePositionBeforeAttach();
         windowManager.addView(assistantView, params);
@@ -162,6 +165,7 @@ public final class FloatingAssistantService extends Service {
                 downRawY = event.getRawY();
                 startX = params.x;
                 startY = params.y;
+                downUptime = SystemClock.uptimeMillis();
                 dragging = false;
                 return true;
 
@@ -184,14 +188,19 @@ public final class FloatingAssistantService extends Service {
                     dockToNearestEdge();
                     persistPosition();
                 } else {
-                    long now = android.os.SystemClock.uptimeMillis();
-                    if (now - lastTapUptime <= 310L) {
+                    long now = SystemClock.uptimeMillis();
+                    long held = Math.max(0L, now - downUptime);
+                    float nx = (event.getX() / Math.max(1f, assistantView.getWidth())) * 2f - 1f;
+                    float ny = (event.getY() / Math.max(1f, assistantView.getHeight())) * 2f - 1f;
+
+                    if (held >= LONG_PRESS_MS) {
+                        lastTapUptime = 0L;
+                        assistantView.reactToLongPress(nx, ny);
+                    } else if (now - lastTapUptime <= 310L) {
                         lastTapUptime = 0L;
                         toggleCollapsed();
                     } else {
                         lastTapUptime = now;
-                        float nx = (event.getX() / Math.max(1f, assistantView.getWidth())) * 2f - 1f;
-                        float ny = (event.getY() / Math.max(1f, assistantView.getHeight())) * 2f - 1f;
                         assistantView.reactToTap(nx, ny);
                     }
                 }
