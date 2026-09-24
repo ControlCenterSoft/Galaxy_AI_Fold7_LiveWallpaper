@@ -1,0 +1,129 @@
+name: Build Galaxy AI v73.0 Silhouette Union Fix APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v73-silhouette-union-fix
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v73 silhouette union and inherited face contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+          service = Path('app/src/main/java/pro/galaxyai/fold7/FloatingAssistantService.java').read_text()
+          view = Path('app/src/main/java/pro/galaxyai/fold7/FloatingAssistantViewV67.java').read_text()
+          expressive = Path('app/src/main/java/pro/galaxyai/fold7/engine/ExpressiveFaceDynamicsV69.java').read_text()
+          viseme = Path('app/src/main/java/pro/galaxyai/fold7/engine/RussianVisemeDynamicsV71.java').read_text()
+          portrait = Path('app/src/main/java/pro/galaxyai/fold7/engine/DeformableLivePortraitV45.java').read_text()
+          state = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIState.java').read_text()
+          personality = Path('app/src/main/java/pro/galaxyai/fold7/ai/RussianAIPersonalityV33.java').read_text()
+          gradle = Path('app/build.gradle').read_text()
+
+          assert 'android.permission.SYSTEM_ALERT_WINDOW' in manifest
+          assert 'FloatingAssistantService' in manifest
+          assert 'BIND_WALLPAPER' not in manifest
+          assert 'GalaxyAIWallpaperService' not in manifest
+          assert 'TYPE_APPLICATION_OVERLAY' in service
+          assert 'KEY_X_FRACTION' in service and 'KEY_Y_FRACTION' in service
+          assert 'KEY_COLLAPSED' in service and 'KEY_DOCK' in service
+
+          # v70/v71 inherited face pipeline.
+          assert 'portrait.requestBlink(blinkCue)' in view
+          assert 'RussianVisemeDynamicsV71' in view
+          assert 'portrait.setMouthShape' in view
+          assert 'requestBlink(float strength)' in portrait
+          assert 'setMouthShape(float roundness, float widthBias)' in portrait
+          assert 'chooseNextViseme' in viseme
+
+          # v72 inherited: explicit phrase-boundary and attention-shift blink timing with refractory guard.
+          assert 'blinkCue' in expressive
+          assert 'blinkRefractory' in expressive
+          assert 'phraseBoundary' in expressive
+          assert 'blinkCue = "focused".equals(emotion) ? 0.66f : 0.92f' in expressive
+          assert 'blinkRefractory = 1.55f' in expressive
+          assert 'chance > threshold' in expressive
+          assert 'return Math.max(saccadeCue' in expressive
+          assert '"sleep".equals(emotion)' in expressive
+
+          # v73: head and torso must be geometrically unioned before clipping.
+          # This prevents the lower-face/neck overlap from becoming a transparent cutout.
+          assert 'private final Path torsoBodyMask = new Path();' in view
+          assert 'torsoBodyMask.reset();' in view
+          assert 'torsoMask.op(torsoBodyMask, Path.Op.UNION);' in view
+          assert 'canvas.clipPath(torsoMask);' in view
+
+          assert '"locale"' in state
+          assert 'RussianAIPersonalityV33.LOCALE_TAG' in state
+          assert '"language"' in state
+          assert 'LOCALE_TAG = "ru-RU"' in personality
+          for forbidden in [
+              'android.permission.CAMERA',
+              'android.permission.RECORD_AUDIO',
+              'android.permission.ACCESS_FINE_LOCATION'
+          ]:
+              assert forbidden not in manifest, forbidden
+
+          assert "versionCode 730" in gradle
+          assert "versionName '73.0'" in gradle
+          assert 'Galaxy AI v73' in manifest
+          PY
+
+      - name: Verify inherited AIDI gateway stack compiles
+        run: python3 -m py_compile aidi_gateway/*.py gateway_simulator/*.py
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v73.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify v73 APK metadata permissions signature and checksum
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Floating_Assistant_v73.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Floating_Assistant_v73.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='730'"
+          echo "$BADGING" | grep -q "versionName='73.0'"
+
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Floating_Assistant_v73.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          echo "$PERMS" | grep -q 'android.permission.SYSTEM_ALERT_WINDOW'
+          echo "$PERMS" | grep -q 'android.permission.FOREGROUND_SERVICE'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Floating_Assistant_v73.0.apk
+          sha256sum Galaxy_AI_Floating_Assistant_v73.0.apk | tee Galaxy_AI_Floating_Assistant_v73.0.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Floating_Assistant_v73.0
+          path: |
+            Galaxy_AI_Floating_Assistant_v73.0.apk
+            Galaxy_AI_Floating_Assistant_v73.0.sha256
+          if-no-files-found: error
+          retention-days: 30
