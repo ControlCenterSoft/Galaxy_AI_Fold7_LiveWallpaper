@@ -3,13 +3,16 @@ package pro.galaxyai.fold7.engine;
 import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
- * v47 Micro Expression controller.
+ * v47 Micro Expression controller, extended by v53 Natural Expression Inertia.
  *
  * Produces subtle bounded expression coefficients from existing AI state only. The values
  * are consumed by the portrait bitmap mesh, so the original face pixels are deformed
- * rather than covered with synthetic geometry. No camera, microphone or biometric input.
+ * rather than covered with synthetic geometry. v53 applies a critically damped local
+ * expression filter so fast state changes do not create abrupt facial reversals.
+ * No camera, microphone or biometric input.
  */
 public final class MicroExpressionControllerV47 {
+    private final ExpressionInertiaV53 inertia = new ExpressionInertiaV53();
     private float time;
     private float smile;
     private float browLift;
@@ -39,16 +42,20 @@ public final class MicroExpressionControllerV47 {
         targetSmile += idle * (1f - serenity) * 0.42f;
         targetBrowLift += (float) Math.sin(time * 0.19f + 2.1f) * 0.018f;
 
-        float smooth = Math.min(1f, dt * 3.8f);
-        smile += (targetSmile - smile) * smooth;
-        browLift += (targetBrowLift - browLift) * smooth;
-        browPinch += (targetBrowPinch - browPinch) * smooth;
-        cheekLift += (targetCheekLift - cheekLift) * smooth;
-
-        smile = clamp(smile, -0.22f, 0.82f);
-        browLift = clamp(browLift, -0.30f, 0.48f);
-        browPinch = clamp(browPinch, 0f, 0.48f);
-        cheekLift = clamp(cheekLift, 0f, 0.58f);
+        // v53: preserve tiny idle motion, but route the final coefficients through a
+        // critically damped spring so expression changes retain human-like inertia.
+        inertia.update(
+                targetSmile,
+                targetBrowLift,
+                targetBrowPinch,
+                targetCheekLift,
+                serenity,
+                dt
+        );
+        smile = inertia.getSmile();
+        browLift = inertia.getBrowLift();
+        browPinch = inertia.getBrowPinch();
+        cheekLift = inertia.getCheekLift();
     }
 
     private void configureTargets() {
