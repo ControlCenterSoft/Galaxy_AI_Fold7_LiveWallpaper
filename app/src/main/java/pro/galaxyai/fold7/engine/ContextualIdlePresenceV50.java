@@ -5,17 +5,18 @@ import android.graphics.Canvas;
 import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
- * v50 Contextual Idle Presence, extended by v51 Upper Body Dynamics and v52 turn-taking.
+ * v50 Contextual Idle Presence, extended by v51 Upper Body Dynamics, v52 turn-taking
+ * and v56 Natural Posture Inertia.
  *
- * Alternates between stillness, slight lean, nod and recovery. v51 adds chest breathing,
- * asymmetric shoulder settling and neck counter-motion. v52 adds speech onset/hold/recovery
- * posture timing so TTS does not start or stop as a mechanical pose snap. Everything uses
- * only local AI state and TTS speaking state: no camera, microphone, precise location,
- * biometrics or raw media.
+ * Alternates between stillness, slight lean, nod and recovery. Whole-portrait pose targets
+ * now pass through bounded spring-damper inertia, so phase changes preserve velocity and
+ * do not look like mechanical interpolation. Everything uses only local AI state and TTS
+ * speaking state: no camera, microphone, precise location, biometrics or raw media.
  */
 public final class ContextualIdlePresenceV50 {
     private final UpperBodyDynamicsV51 upperBody = new UpperBodyDynamicsV51();
     private final ConversationalTurnTakingV52 conversation = new ConversationalTurnTakingV52();
+    private final PostureInertiaV56 postureInertia = new PostureInertiaV56();
     private float time;
     private float phaseClock;
     private float phaseDuration = 2.4f;
@@ -60,11 +61,21 @@ public final class ContextualIdlePresenceV50 {
         if (speaking) localIntensity = Math.max(localIntensity, 0.72f);
         intensity += (localIntensity - intensity) * Math.min(1f, dt * 2.3f);
 
-        float smooth = 1f - (float) Math.exp(-(speaking ? 3.1f : 1.85f) * dt);
-        offsetX += (targetX * intensity - offsetX) * smooth;
-        offsetY += (targetY * intensity - offsetY) * smooth;
-        roll += (targetRoll * intensity - roll) * smooth;
-        scale += (1f + (targetScale - 1f) * intensity - scale) * smooth;
+        // v56: retain phase-based intent, but let the pose carry momentum across boundaries.
+        postureInertia.update(
+                targetX,
+                targetY,
+                targetRoll,
+                targetScale,
+                intensity,
+                speaking,
+                emotion,
+                dt
+        );
+        offsetX = postureInertia.getX();
+        offsetY = postureInertia.getY();
+        roll = postureInertia.getRoll();
+        scale = postureInertia.getScale();
     }
 
     private void choosePhase(boolean speaking) {
@@ -120,8 +131,6 @@ public final class ContextualIdlePresenceV50 {
                 upperBody.getNeckCounterY() * height * 0.0012f
         );
 
-        // v52: a small speech-specific envelope sits on top of the normal idle posture.
-        // It is intentionally below the amplitude of user-touch or autonomous gestures.
         float talk = conversation.getEnvelope();
         canvas.translate(
                 conversation.getLean() * width * 0.0022f * talk,
@@ -134,29 +143,14 @@ public final class ContextualIdlePresenceV50 {
         );
     }
 
-    public float getPixelOffsetX(int width) {
-        return offsetX * width;
-    }
-
-    public float getPixelOffsetY(int height) {
-        return offsetY * height;
-    }
-
-    public float getScale() {
-        return clamp(scale, 0.992f, 1.010f);
-    }
-
+    public float getPixelOffsetX(int width) { return offsetX * width; }
+    public float getPixelOffsetY(int height) { return offsetY * height; }
+    public float getScale() { return clamp(scale, 0.992f, 1.010f); }
     public float getIntensity() {
         return clamp(Math.max(intensity, conversation.getEnvelope() * 0.72f), 0f, 1f);
     }
-
-    public UpperBodyDynamicsV51 getUpperBody() {
-        return upperBody;
-    }
-
-    public ConversationalTurnTakingV52 getConversation() {
-        return conversation;
-    }
+    public UpperBodyDynamicsV51 getUpperBody() { return upperBody; }
+    public ConversationalTurnTakingV52 getConversation() { return conversation; }
 
     private static String normalizeEmotion(String value) {
         String v = value == null ? "calm" : value.trim().toLowerCase();
