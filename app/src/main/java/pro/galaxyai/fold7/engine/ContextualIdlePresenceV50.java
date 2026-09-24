@@ -5,15 +5,17 @@ import android.graphics.Canvas;
 import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
- * v50 Contextual Idle Presence, extended by v51 Upper Body Dynamics.
+ * v50 Contextual Idle Presence, extended by v51 Upper Body Dynamics and v52 turn-taking.
  *
- * Alternates between stillness, slight lean, nod and recovery while v51 adds chest
- * breathing, asymmetric shoulder settling and neck counter-motion. The combined controller
- * uses only local AI state and TTS speaking state. It does not access camera, microphone,
- * precise location, biometrics or raw media.
+ * Alternates between stillness, slight lean, nod and recovery. v51 adds chest breathing,
+ * asymmetric shoulder settling and neck counter-motion. v52 adds speech onset/hold/recovery
+ * posture timing so TTS does not start or stop as a mechanical pose snap. Everything uses
+ * only local AI state and TTS speaking state: no camera, microphone, precise location,
+ * biometrics or raw media.
  */
 public final class ContextualIdlePresenceV50 {
     private final UpperBodyDynamicsV51 upperBody = new UpperBodyDynamicsV51();
+    private final ConversationalTurnTakingV52 conversation = new ConversationalTurnTakingV52();
     private float time;
     private float phaseClock;
     private float phaseDuration = 2.4f;
@@ -36,6 +38,7 @@ public final class ContextualIdlePresenceV50 {
         time += dt;
         phaseClock += dt;
         upperBody.update(decision, speaking, dt);
+        conversation.update(decision, speaking, dt);
 
         if (decision != null) {
             float k = Math.min(1f, dt * 2.6f);
@@ -107,8 +110,6 @@ public final class ContextualIdlePresenceV50 {
         canvas.rotate(roll * 57.29578f, width * 0.53f, height * 0.40f);
         canvas.scale(scale, scale, width * 0.53f, height * 0.43f);
 
-        // v51: posture is pivoted around the chest so the shoulders and head do not move
-        // as a rigid card. The amplitudes are deliberately tiny to preserve realism.
         float shoulderDelta = upperBody.getShoulderLiftRight() - upperBody.getShoulderLiftLeft();
         float chestScaleX = 1f + upperBody.getShoulderSpread() * 0.0038f;
         float chestScaleY = 1f + upperBody.getBreath() * 0.0028f;
@@ -117,6 +118,19 @@ public final class ContextualIdlePresenceV50 {
         canvas.translate(
                 upperBody.getNeckCounterX() * width * 0.0018f,
                 upperBody.getNeckCounterY() * height * 0.0012f
+        );
+
+        // v52: a small speech-specific envelope sits on top of the normal idle posture.
+        // It is intentionally below the amplitude of user-touch or autonomous gestures.
+        float talk = conversation.getEnvelope();
+        canvas.translate(
+                conversation.getLean() * width * 0.0022f * talk,
+                -conversation.getLift() * height * 0.0018f * talk
+        );
+        canvas.rotate(
+                conversation.getNod() * 0.34f * talk,
+                width * 0.53f,
+                height * 0.42f
         );
     }
 
@@ -133,11 +147,15 @@ public final class ContextualIdlePresenceV50 {
     }
 
     public float getIntensity() {
-        return clamp(intensity, 0f, 1f);
+        return clamp(Math.max(intensity, conversation.getEnvelope() * 0.72f), 0f, 1f);
     }
 
     public UpperBodyDynamicsV51 getUpperBody() {
         return upperBody;
+    }
+
+    public ConversationalTurnTakingV52 getConversation() {
+        return conversation;
     }
 
     private static String normalizeEmotion(String value) {
