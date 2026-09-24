@@ -12,7 +12,8 @@ import android.graphics.Shader;
 import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
- * Privacy-safe speech face synchronizer, extended in v61 with syllabic articulation timing.
+ * Privacy-safe speech face synchronizer, extended in v61 with syllabic articulation timing
+ * and in v63 with Russian coarticulation plus short word-boundary micro-pauses.
  *
  * Mouth motion is synthesized only from the local Russian TTS lifecycle/activity envelope.
  * It never reads microphone samples, audio buffers or network media. The resulting scalar
@@ -32,7 +33,10 @@ public final class SpeechFaceSyncV41 {
     private float speechEnergy;
     private float time;
     private float articulationClock;
+    private float articulationDuration = 0.12f;
     private float articulationTarget;
+    private float previousArticulationTarget;
+    private float phrasePauseClock;
     private int articulationIndex;
     private boolean wasSpeaking;
     private String emotion = "calm";
@@ -54,39 +58,69 @@ public final class SpeechFaceSyncV41 {
             if (!wasSpeaking) {
                 articulationClock = 0f;
                 articulationTarget = 0.24f + a * 0.36f;
+                previousArticulationTarget = 0f;
+                phrasePauseClock = 0f;
                 articulationIndex++;
             }
 
+            phrasePauseClock = Math.max(0f, phrasePauseClock - dt);
             articulationClock -= dt;
             if (articulationClock <= 0f) {
                 articulationIndex++;
-                float primary = (float) Math.sin(articulationIndex * 2.399963f + time * 0.11f);
-                float secondary = (float) Math.sin(articulationIndex * 1.173f + 1.2f);
-                float shape = clamp(0.50f + primary * 0.34f + secondary * 0.16f, 0f, 1f);
-                float floor = "focused".equals(emotion) ? 0.08f : 0.11f;
-                float range = "happy".equals(emotion) ? 0.72f : 0.64f;
-                articulationTarget = clamp(floor + a * (0.38f + range * shape), 0.06f, 0.94f);
+                previousArticulationTarget = articulationTarget;
 
-                float cadence = 0.50f + 0.50f
-                        * (float) Math.sin(articulationIndex * 1.618034f + 0.45f);
-                articulationClock = 0.075f + cadence * 0.095f;
-                if ("thinking".equals(emotion)) articulationClock *= 1.06f;
-                if ("happy".equals(emotion)) articulationClock *= 0.94f;
+                // v63 Russian coarticulation: occasional short closures emulate natural
+                // word boundaries without microphone/audio inspection. The interval is
+                // deterministic but non-periodic enough to avoid mechanical jaw flapping.
+                int pausePeriod = 6 + (articulationIndex % 4);
+                boolean wordBoundary = articulationIndex > 2 && articulationIndex % pausePeriod == 0;
+                if (wordBoundary) {
+                    phrasePauseClock = 0.038f + (articulationIndex % 3) * 0.012f;
+                    articulationTarget = 0.035f + a * 0.055f;
+                    articulationDuration = phrasePauseClock;
+                    articulationClock = articulationDuration;
+                } else {
+                    float primary = (float) Math.sin(articulationIndex * 2.399963f + time * 0.11f);
+                    float secondary = (float) Math.sin(articulationIndex * 1.173f + 1.2f);
+                    float shape = clamp(0.50f + primary * 0.34f + secondary * 0.16f, 0f, 1f);
+                    float floor = "focused".equals(emotion) ? 0.08f : 0.11f;
+                    float range = "happy".equals(emotion) ? 0.72f : 0.64f;
+                    articulationTarget = clamp(floor + a * (0.38f + range * shape), 0.06f, 0.94f);
+
+                    float cadence = 0.50f + 0.50f
+                            * (float) Math.sin(articulationIndex * 1.618034f + 0.45f);
+                    articulationDuration = 0.075f + cadence * 0.095f;
+                    if ("thinking".equals(emotion)) articulationDuration *= 1.06f;
+                    if ("happy".equals(emotion)) articulationDuration *= 0.94f;
+                    articulationClock = articulationDuration;
+                }
             }
 
-            targetOpen = articulationTarget;
+            // Blend the previous and current pseudo-phoneme target during the first part
+            // of every articulation interval. This coarticulation makes adjacent syllables
+            // flow into one another instead of snapping between unrelated mouth shapes.
+            float progress = articulationDuration <= 0f
+                    ? 1f : clamp(1f - articulationClock / articulationDuration, 0f, 1f);
+            float coarticulationBlend = smoothStep(clamp(progress * 1.65f, 0f, 1f));
+            targetOpen = lerp(previousArticulationTarget, articulationTarget, coarticulationBlend);
+            if (phrasePauseClock > 0f) targetOpen = Math.min(targetOpen, 0.10f + a * 0.05f);
             speechEnergy += (a - speechEnergy) * Math.min(1f, dt * 8.0f);
         } else {
             targetOpen = 0f;
             articulationClock = 0f;
+            articulationDuration = 0.12f;
             articulationTarget = 0f;
+            previousArticulationTarget = 0f;
+            phrasePauseClock = 0f;
             speechEnergy += (0f - speechEnergy) * Math.min(1f, dt * 5.0f);
         }
         wasSpeaking = speaking;
 
-        // v61 uses asymmetric inertia: openings arrive briskly while closures settle a little
-        // more softly, which avoids a fixed-frequency jaw flap while keeping speech responsive.
-        float speed = targetOpen > mouthOpen ? 13.8f : 10.2f;
+        // v61/v63 retain asymmetric inertia: openings arrive briskly while closures settle
+        // more softly; word-boundary closures are slightly quicker but never instantaneous.
+        float speed;
+        if (phrasePauseClock > 0f) speed = 14.6f;
+        else speed = targetOpen > mouthOpen ? 13.8f : 10.2f;
         mouthOpen += (targetOpen - mouthOpen) * Math.min(1f, dt * speed);
         if (mouthOpen < 0.01f) mouthOpen = 0f;
     }
@@ -163,6 +197,15 @@ public final class SpeechFaceSyncV41 {
 
     public float getMouthOpen() {
         return mouthOpen;
+    }
+
+    private static float smoothStep(float value) {
+        float v = clamp(value, 0f, 1f);
+        return v * v * (3f - 2f * v);
+    }
+
+    private static float lerp(float a, float b, float t) {
+        return a + (b - a) * clamp(t, 0f, 1f);
     }
 
     private static String normalizeEmotion(String value) {
