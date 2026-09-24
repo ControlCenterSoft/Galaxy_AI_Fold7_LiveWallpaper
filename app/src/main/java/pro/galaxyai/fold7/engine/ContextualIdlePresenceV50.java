@@ -5,14 +5,15 @@ import android.graphics.Canvas;
 import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
- * v50 Contextual Idle Presence.
+ * v50 Contextual Idle Presence, extended by v51 Upper Body Dynamics.
  *
- * Adds bounded, deterministic idle behavior so the assistant alternates between stillness,
- * slight lean, nod and recovery instead of moving continuously like a looped image.
- * The controller uses only local AI state and TTS speaking state. It does not access camera,
- * microphone, precise location, biometrics or raw media.
+ * Alternates between stillness, slight lean, nod and recovery while v51 adds chest
+ * breathing, asymmetric shoulder settling and neck counter-motion. The combined controller
+ * uses only local AI state and TTS speaking state. It does not access camera, microphone,
+ * precise location, biometrics or raw media.
  */
 public final class ContextualIdlePresenceV50 {
+    private final UpperBodyDynamicsV51 upperBody = new UpperBodyDynamicsV51();
     private float time;
     private float phaseClock;
     private float phaseDuration = 2.4f;
@@ -34,6 +35,7 @@ public final class ContextualIdlePresenceV50 {
         float dt = clamp(deltaSeconds, 0f, 0.10f);
         time += dt;
         phaseClock += dt;
+        upperBody.update(decision, speaking, dt);
 
         if (decision != null) {
             float k = Math.min(1f, dt * 2.6f);
@@ -77,21 +79,18 @@ public final class ContextualIdlePresenceV50 {
 
         int mode = phaseIndex % 5;
         if (speaking || mode == 3) {
-            // Small acknowledgement nod while speaking or periodically when attentive.
             targetX = (float) Math.sin(p * 0.7f) * 0.004f;
             targetY = 0.008f + (float) Math.sin(p * 1.3f) * 0.003f;
             targetRoll = (float) Math.sin(p) * 0.0035f;
             targetScale = 1.0025f;
             phaseDuration = speaking ? 1.15f : 1.55f;
         } else if (mode == 1 || mode == 4) {
-            // A quiet lean creates presence without constant motion.
             targetX = (float) Math.sin(p * 1.17f) * 0.010f;
             targetY = (float) Math.sin(p * 0.83f) * 0.004f;
             targetRoll = -targetX * 0.42f;
             targetScale = 1.001f;
             phaseDuration = 2.2f + Math.abs((float) Math.sin(p)) * 1.25f;
         } else {
-            // Deliberate stillness is important for human-like motion.
             targetX = 0f;
             targetY = 0f;
             targetRoll = 0f;
@@ -107,6 +106,18 @@ public final class ContextualIdlePresenceV50 {
         canvas.translate(px, py);
         canvas.rotate(roll * 57.29578f, width * 0.53f, height * 0.40f);
         canvas.scale(scale, scale, width * 0.53f, height * 0.43f);
+
+        // v51: posture is pivoted around the chest so the shoulders and head do not move
+        // as a rigid card. The amplitudes are deliberately tiny to preserve realism.
+        float shoulderDelta = upperBody.getShoulderLiftRight() - upperBody.getShoulderLiftLeft();
+        float chestScaleX = 1f + upperBody.getShoulderSpread() * 0.0038f;
+        float chestScaleY = 1f + upperBody.getBreath() * 0.0028f;
+        canvas.rotate(shoulderDelta * 0.42f, width * 0.53f, height * 0.72f);
+        canvas.scale(chestScaleX, chestScaleY, width * 0.53f, height * 0.72f);
+        canvas.translate(
+                upperBody.getNeckCounterX() * width * 0.0018f,
+                upperBody.getNeckCounterY() * height * 0.0012f
+        );
     }
 
     public float getPixelOffsetX(int width) {
@@ -123,6 +134,10 @@ public final class ContextualIdlePresenceV50 {
 
     public float getIntensity() {
         return clamp(intensity, 0f, 1f);
+    }
+
+    public UpperBodyDynamicsV51 getUpperBody() {
+        return upperBody;
     }
 
     private static String normalizeEmotion(String value) {
