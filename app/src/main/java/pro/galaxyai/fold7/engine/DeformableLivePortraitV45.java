@@ -14,8 +14,8 @@ import pro.galaxyai.fold7.R;
 import pro.galaxyai.fold7.ai.SceneDecision;
 
 /**
- * Deformable Live Portrait renderer, extended by v46 attentive gaze, v47 micro-expressions
- * and v59 saccade-aware blink coupling.
+ * Deformable Live Portrait renderer, extended by v46 attentive gaze, v47 micro-expressions,
+ * v59 saccade-aware blink coupling and v60 natural blink dynamics.
  *
  * The photoreal portrait remains fully local. A bounded bitmap mesh deforms only original
  * portrait pixels: head/face motion, shoulder breathing, texture blink, attentive gaze,
@@ -54,7 +54,13 @@ public final class DeformableLivePortraitV45 {
     private float touchY;
     private float touchWeight;
     private float blinkClock;
-    private float blinkPhase = 1f;
+    private float blinkPhaseLeft = 1f;
+    private float blinkPhaseRight = 1f;
+    private float blinkDuration = 0.22f;
+    private float doubleBlinkDelay;
+    private float doubleBlinkCooldown;
+    private boolean doubleBlinkActive;
+    private int blinkSequence;
     private String emotion = "calm";
 
     public DeformableLivePortraitV45(Context context) {
@@ -167,7 +173,8 @@ public final class DeformableLivePortraitV45 {
         float headLift = (float) Math.sin(time * 0.23f + 0.9f) * activity;
         float localRoll = ((float) Math.sin(time * 0.19f + 0.3f) * 0.010f
                 + touchX * touchWeight * 0.013f) * activity;
-        float blinkAmount = 1f - blinkPhase;
+        float blinkAmountLeft = 1f - blinkPhaseLeft;
+        float blinkAmountRight = 1f - blinkPhaseRight;
         float smile = microExpression.getSmile();
         float browLift = microExpression.getBrowLift();
         float browPinch = microExpression.getBrowPinch();
@@ -202,7 +209,9 @@ public final class DeformableLivePortraitV45 {
                 float eyeWeight = Math.min(1f, eyeLeft + eyeRight);
                 dx += gazeX * srcW * 0.0058f * eyeWeight;
                 dy += gazeY * srcH * 0.0027f * eyeWeight;
-                dy += (EYE_Y - ny) * srcH * blinkAmount * 0.82f * eyeWeight;
+                float localBlink = Math.min(1f,
+                        blinkAmountLeft * eyeLeft + blinkAmountRight * eyeRight);
+                dy += (EYE_Y - ny) * srcH * localBlink * 0.82f;
 
                 // v47 eyebrow expression deforms the original brow/forehead pixels.
                 float browLeft = gaussian(nx, 0.405f, 0.105f) * gaussian(ny, 0.294f, 0.035f);
@@ -238,19 +247,25 @@ public final class DeformableLivePortraitV45 {
 
     private void updateBlinkState(float dt) {
         if ("sleep".equals(emotion)) {
-            blinkPhase = 0.18f;
+            blinkPhaseLeft = 0.16f;
+            blinkPhaseRight = 0.20f;
             blinkClock += dt;
             saccadeBlinkCooldown = 0f;
+            doubleBlinkDelay = 0f;
+            doubleBlinkActive = false;
             return;
         }
 
         saccadeBlinkCooldown = Math.max(0f, saccadeBlinkCooldown - dt);
+        doubleBlinkCooldown = Math.max(0f, doubleBlinkCooldown - dt);
         blinkClock += dt;
         float interval = "focused".equals(emotion) ? 4.9f
                 : ("thinking".equals(emotion) ? 3.3f
                 : ("happy".equals(emotion) ? 3.55f : 3.9f));
         interval += (float) Math.sin(time * 0.071f + 0.8f) * 0.42f;
-        float duration = 0.22f;
+        blinkDuration = "focused".equals(emotion) ? 0.185f
+                : ("thinking".equals(emotion) ? 0.195f
+                : ("happy".equals(emotion) ? 0.235f : 0.225f));
 
         // v59 Saccade Blink Coupling: a sufficiently fast local gaze transition may advance
         // the next natural blink. The cooldown prevents repeated blinking during one movement.
@@ -259,17 +274,46 @@ public final class DeformableLivePortraitV45 {
             saccadeBlinkCooldown = 1.45f;
         }
 
+        // v60 Natural Blink Dynamics: occasionally follow a completed natural blink with a
+        // brief second blink. Timing is deterministic and local so behavior stays reproducible.
+        if (doubleBlinkDelay > 0f) {
+            doubleBlinkDelay -= dt;
+            if (doubleBlinkDelay <= 0f) {
+                blinkClock = interval;
+                doubleBlinkActive = true;
+            }
+        }
+
         if (blinkClock >= interval) {
-            float phase = (blinkClock - interval) / duration;
-            if (phase < 0.42f) blinkPhase = 1f - phase / 0.42f;
-            else if (phase < 1f) blinkPhase = (phase - 0.42f) / 0.58f;
-            else {
-                blinkPhase = 1f;
+            float phase = (blinkClock - interval) / blinkDuration;
+            float asymmetry = 0.018f + 0.007f
+                    * (float) Math.sin((blinkSequence + 1) * 1.37f);
+            blinkPhaseLeft = eyelidPhase(phase, -asymmetry);
+            blinkPhaseRight = eyelidPhase(phase, asymmetry);
+            if (phase >= 1f) {
+                blinkPhaseLeft = 1f;
+                blinkPhaseRight = 1f;
                 blinkClock = 0f;
+                blinkSequence++;
+                if (!doubleBlinkActive && doubleBlinkCooldown <= 0f
+                        && ((blinkSequence % 7) == 3
+                        || ("happy".equals(emotion) && (blinkSequence % 5) == 2))) {
+                    doubleBlinkDelay = 0.16f;
+                    doubleBlinkCooldown = 8.5f;
+                }
+                doubleBlinkActive = false;
             }
         } else {
-            blinkPhase = 1f;
+            blinkPhaseLeft = 1f;
+            blinkPhaseRight = 1f;
         }
+    }
+
+    private static float eyelidPhase(float phase, float offset) {
+        float p = clamp(phase + offset, 0f, 1f);
+        final float closeFraction = 0.39f;
+        if (p < closeFraction) return 1f - p / closeFraction;
+        return (p - closeFraction) / (1f - closeFraction);
     }
 
     private float activityForEmotion() {
