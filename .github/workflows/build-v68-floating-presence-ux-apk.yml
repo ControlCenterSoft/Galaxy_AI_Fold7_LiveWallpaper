@@ -1,0 +1,129 @@
+name: Build Galaxy AI v68.0 Floating Presence UX APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/v68-floating-presence-ux
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v68 floating presence UX contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text()
+          activity = Path('app/src/main/java/pro/galaxyai/fold7/MainActivity.java').read_text()
+          service = Path('app/src/main/java/pro/galaxyai/fold7/FloatingAssistantService.java').read_text()
+          view = Path('app/src/main/java/pro/galaxyai/fold7/FloatingAssistantViewV67.java').read_text()
+          dynamics = Path('app/src/main/java/pro/galaxyai/fold7/engine/NaturalFaceDynamicsV67.java').read_text()
+          state = Path('app/src/main/java/pro/galaxyai/fold7/ai/AIState.java').read_text()
+          personality = Path('app/src/main/java/pro/galaxyai/fold7/ai/RussianAIPersonalityV33.java').read_text()
+          gradle = Path('app/build.gradle').read_text()
+
+          # Overlay concept only; wallpaper runtime must stay removed.
+          assert 'android.permission.SYSTEM_ALERT_WINDOW' in manifest
+          assert 'FloatingAssistantService' in manifest
+          assert 'BIND_WALLPAPER' not in manifest
+          assert 'android.software.live_wallpaper' not in manifest
+          assert 'GalaxyAIWallpaperService' not in manifest
+          assert 'TYPE_APPLICATION_OVERLAY' in service
+          assert 'FloatingAssistantViewV67' in service
+
+          # v68 presence UX: persisted scale, collapse, edge docking, safe insets and Fold continuity.
+          assert 'ACTION_SET_SCALE' in service and 'EXTRA_SCALE' in service
+          assert 'KEY_X_FRACTION' in service and 'KEY_Y_FRACTION' in service
+          assert 'KEY_COLLAPSED' in service and 'KEY_DOCK' in service
+          assert 'toggleCollapsed' in service
+          assert 'dockToNearestEdge' in service
+          assert 'safeBounds' in service
+          assert 'getCurrentWindowMetrics' in service
+          assert 'WindowInsets.Type.systemBars()' in service
+          assert 'WindowInsets.Type.displayCutout()' in service
+          assert 'onConfigurationChanged' in service
+          assert 'restoreForCurrentDisplay' in service
+          assert '0.82f' in service and '1.22f' in service
+          assert 'Двойное касание' in activity
+          assert 'Компактный — 82%' in activity
+          assert 'Крупный — 122%' in activity
+
+          # v67 natural face dynamics must remain active.
+          assert 'NaturalFaceDynamicsV67' in view
+          assert 'portrait.setGaze' in view
+          assert 'HeadEyeCoordinationV49' in dynamics
+          assert 'updateMicrosaccade' in dynamics
+          assert 'mouthStiffness' in dynamics
+
+          # Russian and privacy contracts.
+          assert '"locale"' in state
+          assert 'RussianAIPersonalityV33.LOCALE_TAG' in state
+          assert '"language"' in state
+          assert 'LOCALE_TAG = "ru-RU"' in personality
+          for forbidden in [
+              'android.permission.CAMERA',
+              'android.permission.RECORD_AUDIO',
+              'android.permission.ACCESS_FINE_LOCATION'
+          ]:
+              assert forbidden not in manifest, forbidden
+
+          assert "versionCode 680" in gradle
+          assert "versionName '68.0'" in gradle
+          assert 'Galaxy AI v68' in manifest
+          PY
+
+      - name: Verify inherited AIDI gateway stack compiles
+        run: python3 -m py_compile aidi_gateway/*.py gateway_simulator/*.py
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35 components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build v68.0
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify v68 APK metadata permissions signature and checksum
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Galaxy_AI_Floating_Assistant_v68.0.apk
+          BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging Galaxy_AI_Floating_Assistant_v68.0.apk | head -n 1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "versionCode='680'"
+          echo "$BADGING" | grep -q "versionName='68.0'"
+
+          PERMS="$($ANDROID_HOME/build-tools/35.0.0/aapt dump permissions Galaxy_AI_Floating_Assistant_v68.0.apk)"
+          echo "$PERMS"
+          echo "$PERMS" | grep -q 'android.permission.INTERNET'
+          echo "$PERMS" | grep -q 'android.permission.SYSTEM_ALERT_WINDOW'
+          echo "$PERMS" | grep -q 'android.permission.FOREGROUND_SERVICE'
+          ! echo "$PERMS" | grep -q 'android.permission.CAMERA'
+          ! echo "$PERMS" | grep -q 'android.permission.RECORD_AUDIO'
+          ! echo "$PERMS" | grep -q 'android.permission.ACCESS_FINE_LOCATION'
+
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Galaxy_AI_Floating_Assistant_v68.0.apk
+          sha256sum Galaxy_AI_Floating_Assistant_v68.0.apk | tee Galaxy_AI_Floating_Assistant_v68.0.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galaxy_AI_Floating_Assistant_v68.0
+          path: |
+            Galaxy_AI_Floating_Assistant_v68.0.apk
+            Galaxy_AI_Floating_Assistant_v68.0.sha256
+          if-no-files-found: error
+          retention-days: 30
